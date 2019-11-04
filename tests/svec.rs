@@ -13,7 +13,7 @@ fn svec1() {
     vec.push(2).unwrap();
     vec.push(3).unwrap();
 
-    assert_eq!(vec.push(4), Err(KErr::new("out-of-bounds")));
+    assert_eq!(vec.push(4), Err(KErr::new("overflow")));
 }
 
 
@@ -31,6 +31,7 @@ impl Default for Dropper {
 
 #[test]
 fn svec2() {
+    eprintln!("I expect to see: START 3 2 1 END");
     let vec = SVec4::<Dropper>::new();
     assert_eq!(vec.len(),0);
     vec.push(Dropper(1)).unwrap();

@@ -2,22 +2,26 @@ mod svec;
 // mod sstring;  // Newtypes are way too expensive!  Just alias to SVec instead.
 // mod sref;     // I'll probably do this later.  Right now, it's just simpler-to-understand and more efficient to just use raw indexes.
 
+pub use self::svec::SVec;
+
 use kerr::KErr;
 
 use std::fmt;
-use std::cell::{Cell, UnsafeCell};
-
-pub use self::svec::SVec;
+use std::mem::{self, ManuallyDrop};
+use std::ptr;
+use std::cell::{UnsafeCell, Cell};
 
 macro_rules! def_stackvec {
     ( $name:ident, $strname:ident, $size:expr, $init:expr ) => {
         pub struct $name<T> {
-            buf: UnsafeCell<[Option<T>; $size]>,  // I'm using Option mainly for efficient drops.  Also enables me to hardcode the initial values.
+            //data: UnsafeCell<[Option<T>; $size]>,  // I'm using Option mainly for efficient drops.  Also enables me to hardcode the initial values.  NEVERMIND, if i do this, i can't slice efficiently.
+            data: ManuallyDrop<UnsafeCell<[T; $size]>>,
             length: Cell<usize>,
         }
         impl<T> $name<T> {
+            #[inline]
             pub fn new() -> Self {
-                Self{ buf: UnsafeCell::new($init),
+                Self{ data: ManuallyDrop::new(UnsafeCell::new(unsafe { mem::zeroed() })),
                       length: Cell::new(0) }
             }
         }
@@ -28,14 +32,39 @@ macro_rules! def_stackvec {
             fn len(&self) -> usize { self.length.get() }
             fn push(&self, t:T) -> Result<usize,KErr> {
                 let i = self.length.get();
-                if i>=Self::cap() { return Err(KErr::new("out-of-bounds")); }
-                unsafe { ( &mut *self.buf.get() )[i] = Some(t); }
+                if i>=Self::cap() { return Err(KErr::new("overflow")); }
+                unsafe { ptr::write(&mut (*self.data.get())[i], t); }
                 self.length.set(i+1);
                 Ok(i)
             }
+            #[inline]
             fn get(&self, i:usize) -> &T {
                 if i>=self.length.get() { panic!("out-of-bounds"); }
-                unsafe { (& *self.buf.get())[i].as_ref().unwrap() }
+                unsafe { &(*self.data.get())[i] }
+            }
+            #[inline]
+            fn as_slice(&self) -> &[T] {
+                unsafe { &(*self.data.get()) }
+            }
+        }
+        impl<T> $name<T> where T:Copy {
+            #[inline]
+            pub fn get_copy(&self, i:usize) -> T {
+                if i>=self.length.get() { panic!("out-of-bounds"); }
+                unsafe { (*self.data.get())[i] }
+            }
+        }
+        impl<T> Drop for $name<T> {
+            fn drop(&mut self) {
+                //eprintln!("svec drop start");
+
+                let mut length = self.length.get();
+                while length>0 {
+                    unsafe { ptr::drop_in_place(&mut (*self.data.get())[length-1]); }
+                    length-=1; self.length.set(length);
+                }
+
+                //eprintln!("svec drop end");
             }
         }
         impl<T> fmt::Debug for $name<T> {
@@ -102,17 +131,18 @@ mod internal_tests {
 
     impl<T> SVec4<T> where T:PartialEq {
         fn set(&self, i:usize, t:T) {
-            unsafe { ( &mut *self.buf.get() )[i] = Some(t); }
+            unsafe { (*self.data.get())[i] = t; }
         }
     }
-    impl<T> Drop for SVec4<T> {
-        fn drop(&mut self) {
-            eprintln!("in stackvec drop");
-        }
-    }
+    //impl<T> Drop for SVec4<T> {
+    //    fn drop(&mut self) {
+    //        eprintln!("in stackvec drop");
+    //    }
+    //}
 
     #[test]
     fn svec3() {
+        eprintln!("I expect to see: 1 -1 0 START 4 3 2 -11 END");
         let vec = SVec4::<Dropper>::new();
         assert_eq!(vec.len(),0);
 
@@ -129,7 +159,8 @@ mod internal_tests {
         vec.set(0, Dropper(-11));
         assert_eq!(ref0.0,-11);
 
-        vec.set(3, Dropper(-3));
+        vec.set(3, Dropper(-3));  // Only works because zeroed memory happens to be a valid i32.
+                                  // This item's drop() won't be called because SVec assumes it has not been initialized!
 
         vec.push(Dropper(3)).unwrap();
         vec.push(Dropper(4)).unwrap();

@@ -8,5 +8,6 @@ pub trait SVec<T> {
     // fn push(&mut self, t:T) -> &T
     fn push(&self, t:T) -> Result<usize,KErr>;  // Append-only is corner-stone of safety model.
     fn get(&self, i:usize) -> &T;
+    fn as_slice(&self) -> &[T];
 }
 
