@@ -26,14 +26,14 @@ macro_rules! def_stackvec {
             #[inline]
             fn len(&self) -> usize { self.length.get() }
             fn push(&self, t:T) -> Result<usize,KErr> {
-                let i = self.len();
+                let i = self.length.get();
                 if i>=Self::cap() { return Err(KErr::new("out-of-bounds")); }
                 unsafe { ( &mut *self.buf.get() )[i] = Some(t); }
                 self.length.set(i+1);
                 Ok(i)
             }
             fn get(&self, i:usize) -> &T {
-                if i>=self.len() { panic!("out-of-bounds"); }
+                if i>=self.length.get() { panic!("out-of-bounds"); }
                 unsafe { (& *self.buf.get())[i].as_ref().unwrap() }
             }
         }
