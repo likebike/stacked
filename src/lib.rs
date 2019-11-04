@@ -1,8 +1,12 @@
+// So I can use benchmarks:
+#![feature(test)]
+extern crate test;
+
 mod svec;
 // mod sstring;  // Newtypes are way too expensive!  Just alias to SVec instead.
 // mod sref;     // I'll probably do this later.  Right now, it's just simpler-to-understand and more efficient to just use raw indexes.
 
-pub use self::svec::SVec;
+pub use self::svec::{SVecBase, SVec, SVecMut};
 
 use kerr::KErr;
 
@@ -12,20 +16,20 @@ use std::ptr;
 use std::cell::{UnsafeCell, Cell};
 
 macro_rules! def_stackvec {
-    ( $name:ident, $strname:ident, $size:expr, $init:expr ) => {
+    ( $name:ident, $strname:ident, $size:expr ) => {
         pub struct $name<T> {
             //data: UnsafeCell<[Option<T>; $size]>,  // I'm using Option mainly for efficient drops.  Also enables me to hardcode the initial values.  NEVERMIND, if i do this, i can't slice efficiently.
             data: ManuallyDrop<UnsafeCell<[T; $size]>>,
             length: Cell<usize>,
+            consumed: bool,
         }
-        impl<T> $name<T> {
+        impl<T> SVecBase<T> for $name<T> {
             #[inline]
-            pub fn new() -> Self {
+            fn new() -> Self {
                 Self{ data: ManuallyDrop::new(UnsafeCell::new(unsafe { mem::zeroed() })),
-                      length: Cell::new(0) }
+                      length: Cell::new(0),
+                      consumed: false }
             }
-        }
-        impl<T> SVec<T> for $name<T> {
             #[inline]
             fn cap() -> usize { $size }
             #[inline]
@@ -38,20 +42,48 @@ macro_rules! def_stackvec {
                 Ok(i)
             }
             #[inline]
+            fn get_copy(&self, i:usize) -> T where T:Copy {
+                if i>=self.length.get() { panic!("out-of-bounds"); }
+                unsafe { (*self.data.get())[i] }
+            }
+            fn into_slice(&mut self) -> &mut [T] {
+                if self.consumed { panic!("already consumed"); }
+                self.consumed = true;
+                unsafe { &mut *self.data.get() }
+            }
+        }
+        impl<T> SVec<T> for $name<T> {
+            #[inline]
             fn get(&self, i:usize) -> &T {
+                if self.consumed { panic!("already consumed"); }
                 if i>=self.length.get() { panic!("out-of-bounds"); }
                 unsafe { &(*self.data.get())[i] }
             }
             #[inline]
             fn as_slice(&self) -> &[T] {
+                if self.consumed { panic!("already consumed"); }
                 unsafe { &(*self.data.get()) }
             }
         }
-        impl<T> $name<T> where T:Copy {
+        impl<T> SVecMut<T> for $name<T> {
+            fn pop(&self) -> T {
+                if self.consumed { panic!("already consumed"); }
+                let length = self.length.get();
+                if length==0 { panic!("underflow"); }
+                let t = unsafe { ptr::read( &(*self.data.get())[length-1] ) };
+                self.length.set(length-1);
+                t
+            }
+            fn update(&self, i:usize, t:T) {
+                if self.consumed { panic!("already consumed"); }
+                if i>=self.length.get() { panic!("out-of-bounds") }
+                unsafe { (*self.data.get())[i] = t; }
+            }
+        }
+        impl $name<u8> {
             #[inline]
-            pub fn get_copy(&self, i:usize) -> T {
-                if i>=self.length.get() { panic!("out-of-bounds"); }
-                unsafe { (*self.data.get())[i] }
+            pub fn as_str(&self) -> Result<&str, KErr> {
+                std::str::from_utf8(self.as_slice()).map_err(|_| KErr::new("Utf8Error"))
             }
         }
         impl<T> Drop for $name<T> {
@@ -98,17 +130,16 @@ macro_rules! def_stackvec {
     }
 }
 
-// I'm using this very-verbose array-of-Nones because Rust can't do loops in declarative macros, and also because 'Default' is not implemented for arrays with len>32.
-def_stackvec!(   SVec2,    SString2,    2, [None,None,]);
-def_stackvec!(   SVec4,    SString4,    4, [None,None,None,None,]);
-def_stackvec!(   SVec8,    SString8,    8, [None,None,None,None,None,None,None,None,]);
-def_stackvec!(  SVec16,   SString16,   16, [None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,]);
-def_stackvec!(  SVec32,   SString32,   32, [None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,]);
-def_stackvec!(  SVec64,   SString64,   64, [None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,]);
-def_stackvec!( SVec128,  SString128,  128, [None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,]);
-def_stackvec!( SVec256,  SString256,  256, [None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,]);
-def_stackvec!( SVec512,  SString512,  512, [None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,]);
-def_stackvec!(SVec1024, SString1024, 1024, [None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,]);
+def_stackvec!(   SVec2,    SString2,    2);
+def_stackvec!(   SVec4,    SString4,    4);
+def_stackvec!(   SVec8,    SString8,    8);
+def_stackvec!(  SVec16,   SString16,   16);
+def_stackvec!(  SVec32,   SString32,   32);
+def_stackvec!(  SVec64,   SString64,   64);
+def_stackvec!( SVec128,  SString128,  128);
+def_stackvec!( SVec256,  SString256,  256);
+def_stackvec!( SVec512,  SString512,  512);
+def_stackvec!(SVec1024, SString1024, 1024);
 
 
 #[cfg(test)]
@@ -159,13 +190,32 @@ mod internal_tests {
         vec.set(0, Dropper(-11));
         assert_eq!(ref0.0,-11);
 
-        vec.set(3, Dropper(-3));  // Only works because zeroed memory happens to be a valid i32.
+        vec.set(3, Dropper(-3));  // Treats existing zero-bytes as a Dropper and drops it.
+                                  // We're lucky zeroed memory happens to be a valid i32, otherwise BAD THINGS could happen!
                                   // This item's drop() won't be called because SVec assumes it has not been initialized!
 
         vec.push(Dropper(3)).unwrap();
         vec.push(Dropper(4)).unwrap();
     }
 
+
+
+    use test::{Bencher, black_box};
+
+    #[bench]
+    fn svec1(b:&mut Bencher) {
+        b.iter(|| {
+            let a = 333; black_box(a);
+            for _ in 1..100 {
+                let v = SVec32::<u8>::new();
+                let cap = SVec32::<u8>::cap();
+                while v.len()<cap { v.push(b'1').unwrap(); }
+
+                black_box(v);
+            }
+            let z = 444; black_box(z);
+        });
+    }
 
 }
 
