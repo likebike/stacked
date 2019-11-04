@@ -1,5 +1,6 @@
 mod svec;
-mod sref;
+// mod sstring;  // Newtypes are way too expensive!  Just alias to SVec instead.
+// mod sref;     // I'll probably do this later.  Right now, it's just simpler-to-understand and more efficient to just use raw indexes.
 
 use kerr::KErr;
 
