@@ -66,9 +66,17 @@ fn mutation() {
     vec.remove(1);
     assert_eq!(format!("{}",vec), "SVec4[ 5, 2, 4 ]");
 
+    let x = vec.get(1);   // Get shared access.
+    assert_eq!(x, &2);
+
+    vec.push(7).unwrap(); // Append is still ok even with 'x' around.
+
+    vec.set(2,8);         // Mutation is not allowed while 'x' exists.
     vec.remove(2);
     vec.pop();
     vec.pop();
-    assert_eq!(format!("{}",vec), "SVec4[]");
+    assert_eq!(format!("{}",vec), "SVec4[ 5 ]");
+
+    // assert_eq!(x, &2); // Uncomment to test borrow check.
 }
 

@@ -125,6 +125,9 @@ macro_rules! def_stackvec {
             }
         }
         // I can't figure out how to turn this into a blanket implementation...
+        // The difficulty is maybe because the Trait and the Type are both parameterized,
+        // and so i can't figure out how to specify those parameters along with the extra
+        // Display constraint...  I'm sure it's easy, but I can't figure it out.
         impl<T> fmt::Display for $name<T> where T:fmt::Display {
             fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
                 let mut nonempty = false;
@@ -140,10 +143,14 @@ macro_rules! def_stackvec {
             }
         }
 
-
         pub type $strname = $name<u8>;
         // ---- I wanted to use this newtype, but it runs 50x slower than the above alias!!!
         //      The compiler does a *horrible* job of handling this simple case...
+        //      I think it's because I was hitting a very perfect scenario where the compiler
+        //      produced code with almost no jumps and very localized code and data, which
+        //      resulted in some extremely fast benches.  Combined with the fact that the
+        //      compiler doesn't try to inline functions across crates, and the extra fn call
+        //      was a killer for the tight-loop.
         // pub struct $strname(pub $name<u8>)
         // impl $strname {
         //     pub fn new() -> Self { Self($name::new()) }
