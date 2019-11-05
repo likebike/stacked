@@ -78,5 +78,18 @@ fn mutation() {
     assert_eq!(vec.to_string(), "SVec4[ 5 ]");
 
     // assert_eq!(x, &2); // Uncomment to test borrow check.
+
+    let mut sum = 0i32;
+    let iter = vec.iter();
+    vec.push(8).unwrap();  // Appends are always ok.  The new item doesn't get included in the iterator.
+    //vec.pop(); // Mutation is not ok while iter is still being used.
+    for x in iter { sum+=x; }
+    assert_eq!(sum, 5);
+
+    vec.push(9).unwrap();
+    vec.pop(); // Mutation is ok again.
+
+    for x in vec.iter_mut() { *x+=10; }
+    assert_eq!(vec.to_string(), "SVec4[ 15, 18 ]");
 }
 

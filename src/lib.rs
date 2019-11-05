@@ -98,6 +98,20 @@ macro_rules! def_stackvec {
             fn as_slice(&self) -> &[T] {
                 unsafe { &(*self.data.get())[..self.len()] }
             }
+            #[inline]
+            fn as_slice_mut(&mut self) -> &mut [T] {
+                unsafe { &mut (*self.data.get())[..self.len()] }
+            }
+        }
+        impl<T> $name<T> {
+            #[inline]
+            pub fn iter(&self) -> impl Iterator<Item=&T> {  // Currently not able to return 'impl Trait' from trait methods.  Maybe someday...
+                self.as_slice().iter()
+            }
+            #[inline]
+            pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut T> {  // Currently not able to return 'impl Trait' from trait methods.
+                self.as_slice_mut().iter_mut()
+            }
         }
         impl $name<u8> {
             #[inline]
