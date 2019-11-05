@@ -6,7 +6,7 @@ mod svec;
 // mod sstring;  // Newtypes are way too expensive!  Just alias to SVec instead.
 // mod sref;     // I'll probably do this later.  Right now, it's just simpler-to-understand and more efficient to just use raw indexes.
 
-pub use self::svec::{SVecBase, SVec, SVecMut};
+pub use self::svec::SVec;
 
 use kerr::KErr;
 
@@ -21,19 +21,19 @@ macro_rules! def_stackvec {
             //data: UnsafeCell<[Option<T>; $size]>,  // I'm using Option mainly for efficient drops.  Also enables me to hardcode the initial values.  NEVERMIND, if i do this, i can't slice efficiently.
             data: ManuallyDrop<UnsafeCell<[T; $size]>>,
             length: Cell<usize>,
-            consumed: bool,
         }
-        impl<T> SVecBase<T> for $name<T> {
+        impl<T> SVec<T> for $name<T> {
             #[inline]
             fn new() -> Self {
                 Self{ data: ManuallyDrop::new(UnsafeCell::new(unsafe { mem::zeroed() })),
-                      length: Cell::new(0),
-                      consumed: false }
+                      length: Cell::new(0) }
             }
+
             #[inline]
             fn cap() -> usize { $size }
             #[inline]
             fn len(&self) -> usize { self.length.get() }
+
             fn push(&self, t:T) -> Result<usize,KErr> {
                 let i = self.length.get();
                 if i>=Self::cap() { return Err(KErr::new("overflow")); }
@@ -41,43 +41,62 @@ macro_rules! def_stackvec {
                 self.length.set(i+1);
                 Ok(i)
             }
+            fn pop(&mut self) -> T {
+                let len = self.length.get();
+                if len==0 { panic!("underflow"); }
+                let t = unsafe { ptr::read( &(*self.data.get())[len-1] ) };
+                self.length.set(len-1);
+                t
+            }
+
+            #[inline]
+            fn get(&self, i:usize) -> &T {
+                if i>=self.length.get() { panic!("out-of-bounds"); }
+                unsafe { &(*self.data.get())[i] }
+            }
             #[inline]
             fn get_copy(&self, i:usize) -> T where T:Copy {
                 if i>=self.length.get() { panic!("out-of-bounds"); }
                 unsafe { (*self.data.get())[i] }
             }
-            fn into_slice(&mut self) -> &mut [T] {
-                if self.consumed { panic!("already consumed"); }
-                self.consumed = true;
-                unsafe { &mut *self.data.get() }
+            fn set(&mut self, i:usize, t:T) {
+                let len = self.length.get();
+                if i>len { panic!("out-of-bounds") }
+                if i==len {
+                    self.push(t).unwrap();
+                    return;
+                }
+                unsafe { (*self.data.get())[i] = t; }
             }
-        }
-        impl<T> SVec<T> for $name<T> {
-            #[inline]
-            fn get(&self, i:usize) -> &T {
-                if self.consumed { panic!("already consumed"); }
-                if i>=self.length.get() { panic!("out-of-bounds"); }
-                unsafe { &(*self.data.get())[i] }
+
+            fn insert(&mut self, i:usize, t:T) {
+                let len = self.length.get();
+                if i>len { panic!("out-of-bounds"); }
+                if i>=Self::cap() { panic!("overflow"); }
+
+                unsafe {
+                    let p = &mut (*self.data.get())[i] as *mut T;
+                    ptr::copy(p, p.offset(1), len-i);
+                    ptr::write(p, t);
+                    self.length.set(len+1);
+                }
             }
+            fn remove(&mut self, i:usize) -> T {
+                let len = self.length.get();
+                if i>=len { panic!("out-of-bounds"); }
+
+                unsafe {
+                    let p = &mut (*self.data.get())[i] as *mut T;
+                    let t = ptr::read(p);
+                    self.length.set(len-1);
+                    ptr::copy(p.offset(1), p, len-i-1);
+                    t
+                }
+            }
+
             #[inline]
             fn as_slice(&self) -> &[T] {
-                if self.consumed { panic!("already consumed"); }
-                unsafe { &(*self.data.get()) }
-            }
-        }
-        impl<T> SVecMut<T> for $name<T> {
-            fn pop(&self) -> T {
-                if self.consumed { panic!("already consumed"); }
-                let length = self.length.get();
-                if length==0 { panic!("underflow"); }
-                let t = unsafe { ptr::read( &(*self.data.get())[length-1] ) };
-                self.length.set(length-1);
-                t
-            }
-            fn update(&self, i:usize, t:T) {
-                if self.consumed { panic!("already consumed"); }
-                if i>=self.length.get() { panic!("out-of-bounds") }
-                unsafe { (*self.data.get())[i] = t; }
+                unsafe { &(*self.data.get())[..self.len()] }
             }
         }
         impl $name<u8> {
@@ -99,18 +118,28 @@ macro_rules! def_stackvec {
                 //eprintln!("svec drop end");
             }
         }
-        impl<T> fmt::Debug for $name<T> {
-            fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
-                let _f = f;  // Silence warning
-                unimplemented!();
-            }
-        }
         impl<T> PartialEq for $name<T> where T:PartialEq {
             fn eq(&self, other:&Self) -> bool {
                 if self.len()!=other.len() { return false }
                 unimplemented!();
             }
         }
+        // I can't figure out how to turn this into a blanket implementation...
+        impl<T> fmt::Display for $name<T> where T:fmt::Display {
+            fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
+                let mut nonempty = false;
+                write!(f, "{}[", stringify!($name))?;
+                for t in self.as_slice().iter() {
+                    if nonempty { write!(f, ",")?; }
+                    nonempty = true;
+                    write!(f, " {}", t)?;
+                }
+                if nonempty { write!(f, " ")?; }
+                write!(f, "]")?;
+                Ok(())
+            }
+        }
+
 
         pub type $strname = $name<u8>;
         // ---- I wanted to use this newtype, but it runs 50x slower than the above alias!!!
@@ -161,7 +190,7 @@ mod internal_tests {
     }
 
     impl<T> SVec4<T> where T:PartialEq {
-        fn set(&self, i:usize, t:T) {
+        fn zet(&self, i:usize, t:T) {
             unsafe { (*self.data.get())[i] = t; }
         }
     }
@@ -184,13 +213,13 @@ mod internal_tests {
 
         vec.push(Dropper(2)).unwrap();
 
-        vec.set(0, Dropper(-1));
+        vec.zet(0, Dropper(-1));
         assert_eq!(ref0.0,-1);
 
-        vec.set(0, Dropper(-11));
+        vec.zet(0, Dropper(-11));
         assert_eq!(ref0.0,-11);
 
-        vec.set(3, Dropper(-3));  // Treats existing zero-bytes as a Dropper and drops it.
+        vec.zet(3, Dropper(-3));  // Treats existing zero-bytes as a Dropper and drops it.
                                   // We're lucky zeroed memory happens to be a valid i32, otherwise BAD THINGS could happen!
                                   // This item's drop() won't be called because SVec assumes it has not been initialized!
 

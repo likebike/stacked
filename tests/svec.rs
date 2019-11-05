@@ -44,3 +44,31 @@ fn optionlayout() {
     eprintln!("i32 size: {},  Option<i32> size: {}", size_of::<i32>(), size_of::<Option<i32>>());
 }
 
+#[test]
+fn mutation() {
+    let mut vec = SVec4::<i32>::new();
+    vec.push(1).unwrap();
+    vec.push(2).unwrap();
+    vec.push(3).unwrap();
+    assert_eq!(format!("{}",vec), "SVec4[ 1, 2, 3 ]");
+
+    assert_eq!(vec.pop(), 3);
+    assert_eq!(format!("{}",vec), "SVec4[ 1, 2 ]");
+    vec.push(4).unwrap();
+    assert_eq!(format!("{}",vec), "SVec4[ 1, 2, 4 ]");
+    
+    vec.set(0,5);
+    assert_eq!(format!("{}",vec), "SVec4[ 5, 2, 4 ]");
+
+    vec.insert(1,6);
+    assert_eq!(format!("{}",vec), "SVec4[ 5, 6, 2, 4 ]");
+
+    vec.remove(1);
+    assert_eq!(format!("{}",vec), "SVec4[ 5, 2, 4 ]");
+
+    vec.remove(2);
+    vec.pop();
+    vec.pop();
+    assert_eq!(format!("{}",vec), "SVec4[]");
+}
+
