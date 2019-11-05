@@ -50,21 +50,21 @@ fn mutation() {
     vec.push(1).unwrap();
     vec.push(2).unwrap();
     vec.push(3).unwrap();
-    assert_eq!(format!("{}",vec), "SVec4[ 1, 2, 3 ]");
+    assert_eq!(vec.to_string(), "SVec4[ 1, 2, 3 ]");
 
     assert_eq!(vec.pop(), 3);
-    assert_eq!(format!("{}",vec), "SVec4[ 1, 2 ]");
+    assert_eq!(vec.to_string(), "SVec4[ 1, 2 ]");
     vec.push(4).unwrap();
-    assert_eq!(format!("{}",vec), "SVec4[ 1, 2, 4 ]");
+    assert_eq!(vec.to_string(), "SVec4[ 1, 2, 4 ]");
     
     vec.set(0,5);
-    assert_eq!(format!("{}",vec), "SVec4[ 5, 2, 4 ]");
+    assert_eq!(vec.to_string(), "SVec4[ 5, 2, 4 ]");
 
     vec.insert(1,6);
-    assert_eq!(format!("{}",vec), "SVec4[ 5, 6, 2, 4 ]");
+    assert_eq!(vec.to_string(), "SVec4[ 5, 6, 2, 4 ]");
 
     vec.remove(1);
-    assert_eq!(format!("{}",vec), "SVec4[ 5, 2, 4 ]");
+    assert_eq!(vec.to_string(), "SVec4[ 5, 2, 4 ]");
 
     let x = vec.get(1);   // Get shared access.
     assert_eq!(x, &2);
@@ -75,7 +75,7 @@ fn mutation() {
     vec.remove(2);
     vec.pop();
     vec.pop();
-    assert_eq!(format!("{}",vec), "SVec4[ 5 ]");
+    assert_eq!(vec.to_string(), "SVec4[ 5 ]");
 
     // assert_eq!(x, &2); // Uncomment to test borrow check.
 }
