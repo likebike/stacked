@@ -1,4 +1,4 @@
-use stacked::{SVec, SVec4};
+use stacked::{SVec, SVec4, SVec16};
 
 use kerr::KErr;
 
@@ -9,7 +9,7 @@ fn svec1() {
     let vec = SVec4::<i32>::new();
     let ai = vec.push(0).unwrap();
     let bi = vec.push(1).unwrap();
-    eprintln!("{} {}",vec.get(ai),vec.get(bi));
+    eprintln!("{} {}",vec[ai],vec[bi]);
     vec.push(2).unwrap();
     vec.push(3).unwrap();
 
@@ -56,8 +56,8 @@ fn mutation() {
     assert_eq!(vec.to_string(), "SVec4[ 1, 2 ]");
     vec.push(4).unwrap();
     assert_eq!(vec.to_string(), "SVec4[ 1, 2, 4 ]");
-    
-    vec.set(0,5);
+
+    vec[0] = 5;
     assert_eq!(vec.to_string(), "SVec4[ 5, 2, 4 ]");
 
     vec.insert(1,6);
@@ -66,12 +66,12 @@ fn mutation() {
     vec.remove(1);
     assert_eq!(vec.to_string(), "SVec4[ 5, 2, 4 ]");
 
-    let x = vec.get(1);   // Get shared access.
+    let x = &vec[1];   // Get shared access.
     assert_eq!(x, &2);
 
     vec.push(7).unwrap(); // Append is still ok even with 'x' around.
 
-    vec.set(2,8);         // Mutation is not allowed while 'x' exists.
+    vec[2] = 8;           // Mutation is not allowed while 'x' exists.
     vec.remove(2);
     vec.pop();
     vec.pop();
@@ -86,10 +86,43 @@ fn mutation() {
     for x in iter { sum+=x; }
     assert_eq!(sum, 5);
 
+    let mut sum = 0i32;
+    let iter = (&vec).into_iter();
     vec.push(9).unwrap();
+    //vec.pop(); // Mutation is not ok while iter is still being used.
+    for x in iter { sum+=x; }
+    assert_eq!(sum, 13);
+
+    vec.push(10).unwrap();
     vec.pop(); // Mutation is ok again.
 
-    for x in vec.iter_mut() { *x+=10; }
-    assert_eq!(vec.to_string(), "SVec4[ 15, 18 ]");
+    let iter = vec.iter_mut();
+    //vec.pop();  // Not allowed
+    for x in iter { *x+=10; }
+    assert_eq!(vec.to_string(), "SVec4[ 15, 18, 19 ]");
+
+    let iter = (&mut vec).into_iter();
+    //vec.pop();  // Not allowed
+    for x in iter { *x+=10; }
+    assert_eq!(vec.to_string(), "SVec4[ 25, 28, 29 ]");
+
+    vec.push(11).unwrap();
+    vec.pop(); // Mutation is ok again.
+    assert_eq!(vec.to_string(), "SVec4[ 25, 28, 29 ]");
+}
+
+#[test]
+fn as_str() {
+    let vec = SVec16::<u8>::new();
+    vec.push(b'H').unwrap();
+    vec.push(b'e').unwrap();
+    vec.push(b'l').unwrap();
+    vec.push(b'l').unwrap();
+    vec.push(b'o').unwrap();
+    assert_eq!(vec.as_str().unwrap(), "Hello");
+
+    let vec = SVec16::<i32>::new();
+    vec.push(0).unwrap();
+    // assert_eq!(vec.as_str().unwrap(), "...");  // 'as_str()' doesn't exist for non-u8 types.
 }
 
