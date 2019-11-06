@@ -221,11 +221,25 @@ macro_rules! def_stackvec {
         impl<T> fmt::Display for $name<T> where T:fmt::Display {
             fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
                 let mut nonempty = false;
-                write!(f, "{}[", stringify!($name))?;
+                write!(f, "[")?;
                 for t in self.as_slice().iter() {
                     if nonempty { write!(f, ",")?; }
                     nonempty = true;
                     write!(f, " {}", t)?;
+                }
+                if nonempty { write!(f, " ")?; }
+                write!(f, "]")?;
+                Ok(())
+            }
+        }
+        impl<T> fmt::Debug for $name<T> where T:fmt::Debug {
+            fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
+                let mut nonempty = false;
+                write!(f, "{}[", stringify!($name))?;
+                for t in self.as_slice().iter() {
+                    if nonempty { write!(f, ",")?; }
+                    nonempty = true;
+                    write!(f, " {:?}", t)?;
                 }
                 if nonempty { write!(f, " ")?; }
                 write!(f, "]")?;

@@ -47,24 +47,25 @@ fn optionlayout() {
 #[test]
 fn mutation() {
     let mut vec = SVec4::<i32>::new();
+    assert_eq!(vec.to_string(), "[]");
     vec.push(1).unwrap();
     vec.push(2).unwrap();
     vec.push(3).unwrap();
-    assert_eq!(vec.to_string(), "SVec4[ 1, 2, 3 ]");
+    assert_eq!(vec.to_string(), "[ 1, 2, 3 ]");
 
     assert_eq!(vec.pop(), 3);
-    assert_eq!(vec.to_string(), "SVec4[ 1, 2 ]");
+    assert_eq!(vec.to_string(), "[ 1, 2 ]");
     vec.push(4).unwrap();
-    assert_eq!(vec.to_string(), "SVec4[ 1, 2, 4 ]");
+    assert_eq!(vec.to_string(), "[ 1, 2, 4 ]");
 
     vec[0] = 5;
-    assert_eq!(vec.to_string(), "SVec4[ 5, 2, 4 ]");
+    assert_eq!(vec.to_string(), "[ 5, 2, 4 ]");
 
     vec.insert(1,6);
-    assert_eq!(vec.to_string(), "SVec4[ 5, 6, 2, 4 ]");
+    assert_eq!(vec.to_string(), "[ 5, 6, 2, 4 ]");
 
     vec.remove(1);
-    assert_eq!(vec.to_string(), "SVec4[ 5, 2, 4 ]");
+    assert_eq!(vec.to_string(), "[ 5, 2, 4 ]");
 
     let x = &vec[1];   // Get shared access.
     assert_eq!(x, &2);
@@ -75,7 +76,7 @@ fn mutation() {
     vec.remove(2);
     vec.pop();
     vec.pop();
-    assert_eq!(vec.to_string(), "SVec4[ 5 ]");
+    assert_eq!(vec.to_string(), "[ 5 ]");
 
     // assert_eq!(x, &2); // Uncomment to test borrow check.
 
@@ -103,19 +104,20 @@ fn mutation() {
     let iter = vec.iter_mut();
     //vec.pop();  // Not allowed
     for x in iter { *x+=10; }
-    assert_eq!(vec.to_string(), "SVec4[ 15, 18, 19 ]");
+    assert_eq!(vec.to_string(), "[ 15, 18, 19 ]");
 
     let iter = (&mut vec).into_iter();
     //vec.pop();  // Not allowed
     for x in iter { *x+=10; }
-    assert_eq!(vec.to_string(), "SVec4[ 25, 28, 29 ]");
+    assert_eq!(vec.to_string(), "[ 25, 28, 29 ]");
 
     for x in &mut vec { *x+=10; }
-    assert_eq!(vec.to_string(), "SVec4[ 35, 38, 39 ]");
+    assert_eq!(vec.to_string(), "[ 35, 38, 39 ]");
 
     vec.push(11).unwrap();
     vec.pop(); // Mutation is allowed again.
-    assert_eq!(vec.to_string(), "SVec4[ 35, 38, 39 ]");
+    assert_eq!(vec.to_string(), "[ 35, 38, 39 ]");
+    assert_eq!(format!("{:?}",vec), "SVec4[ 35, 38, 39 ]");
 
     //for x in vec {}  // Nice error message.
 }
