@@ -3,8 +3,8 @@ use std::slice;
 use std::ops::{Index, IndexMut};
 
 
-// I am looking forward to const_generics : https://github.com/rust-lang/rust/issues/44580
-
+// This is how you can manually convert a value to a type, and call a type-parameterized function:
+// pub fn cap<T>(_:&T) -> usize where T:SVec { T::cap() }
 
 pub trait SVec : Sized + Drop + Index<usize> + IndexMut<usize> {  // https://github.com/rust-lang/rfcs/blob/master/text/0546-Self-not-sized-by-default.md
     type Item;
@@ -12,7 +12,7 @@ pub trait SVec : Sized + Drop + Index<usize> + IndexMut<usize> {  // https://git
     // ---- Append-Only Interface ----
     // If you ONLY use this section, you can't have bugs.
     fn new() -> Self;
-    fn cap() -> usize;
+    fn cap(&self) -> usize;
     fn len(&self) -> usize;
     fn push(&self, t:Self::Item) -> Result<usize,KErr>;
     //fn get(&self, i:usize) -> &Self::Item;
@@ -55,13 +55,13 @@ macro_rules! def_stackvec {
             }
 
             #[inline]
-            fn cap() -> usize { $size }
+            fn cap(&self) -> usize { $size }
             #[inline]
             fn len(&self) -> usize { self.length.get() }
 
             fn push(&self, t:T) -> Result<usize,KErr> {
                 let i = self.length.get();
-                if i>=Self::cap() { return Err(KErr::new("overflow")); }
+                if i>=self.cap() { return Err(KErr::new("overflow")); }
                 unsafe { ptr::write(&mut (*self.data.get())[i], t); }
                 self.length.set(i+1);
                 Ok(i)
@@ -97,7 +97,7 @@ macro_rules! def_stackvec {
             fn insert(&mut self, i:usize, t:T) {
                 let len = self.length.get();
                 if i>len { panic!("out-of-bounds"); }
-                if i>=Self::cap() { panic!("overflow"); }
+                if i>=self.cap() { panic!("overflow"); }
 
                 unsafe {
                     let p = &mut (*self.data.get())[i] as *mut T;
@@ -185,6 +185,13 @@ macro_rules! def_stackvec {
             }
         }
 
+        impl<T> IntoIterator for $name<T> {
+            type Item = T;
+            type IntoIter = std::option::IntoIter<T>;
+            fn into_iter(self) -> Self::IntoIter {
+                panic!("Do not convert an 'SVec' object to an Iterator directly -- use '&SVec' or '&mut SVec' instead.");
+            }
+        }
         impl<'a,T> IntoIterator for &'a $name<T> {
             type Item = &'a T;
             type IntoIter = slice::Iter<'a,T>;

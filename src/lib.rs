@@ -18,6 +18,9 @@ use std::cell::{UnsafeCell, Cell};
 use std::slice;
 use std::ops::{Index, IndexMut};
 
+
+// I am looking forward to const_generics : https://github.com/rust-lang/rust/issues/44580
+
 def_stackvec!(   SVec1,    SString1,    1);
 def_stackvec!(   SVec2,    SString2,    2);
 def_stackvec!(   SVec4,    SString4,    4);
@@ -100,7 +103,7 @@ mod internal_tests {
             let a = 333; black_box(a);
             for _ in 1..100 {
                 let v = SVec32::<u8>::new();
-                let cap = SVec32::<u8>::cap();
+                let cap = v.cap();  //SVec32::<u8>::cap();
                 while v.len()<cap { v.push(b'1').unwrap(); }
 
                 black_box(v);

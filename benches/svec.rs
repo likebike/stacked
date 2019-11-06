@@ -4,7 +4,7 @@
 extern crate test;  // 'extern crate' seems to be required for this scenario: https://github.com/rust-lang/rust/issues/57288
 use test::{Bencher, black_box};
 
-use stacked::{SVec, SVec32};
+use stacked::{self, SVec, SVec32};
 
 #[bench]
 fn vec1(b:&mut Bencher) {
@@ -25,7 +25,7 @@ fn svec1(b:&mut Bencher) {
         let a = 333; black_box(a);
         for _ in 1..100 {
             let v = SVec32::<u8>::new();
-            let cap = SVec32::<u8>::cap();
+            let cap = v.cap();
             while v.len()<cap { v.push(b'1').unwrap(); }
 
             black_box(v);

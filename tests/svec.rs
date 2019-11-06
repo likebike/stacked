@@ -81,20 +81,24 @@ fn mutation() {
 
     let mut sum = 0i32;
     let iter = vec.iter();
-    vec.push(8).unwrap();  // Appends are always ok.  The new item doesn't get included in the iterator.
-    //vec.pop(); // Mutation is not ok while iter is still being used.
+    vec.push(8).unwrap();  // Appends are always allowed.  The new item doesn't get included in the iterator.
+    //vec.pop(); // Mutation is not allowed while iter is still being used.
     for x in iter { sum+=x; }
     assert_eq!(sum, 5);
 
     let mut sum = 0i32;
     let iter = (&vec).into_iter();
     vec.push(9).unwrap();
-    //vec.pop(); // Mutation is not ok while iter is still being used.
+    //vec.pop(); // Mutation is not allowed while iter is still being used.
     for x in iter { sum+=x; }
     assert_eq!(sum, 13);
 
+    let mut sum = 0i32;
+    for x in &vec { sum+=x; }
+    assert_eq!(sum, 22);
+
     vec.push(10).unwrap();
-    vec.pop(); // Mutation is ok again.
+    vec.pop(); // Mutation is allowed again.
 
     let iter = vec.iter_mut();
     //vec.pop();  // Not allowed
@@ -106,9 +110,14 @@ fn mutation() {
     for x in iter { *x+=10; }
     assert_eq!(vec.to_string(), "SVec4[ 25, 28, 29 ]");
 
+    for x in &mut vec { *x+=10; }
+    assert_eq!(vec.to_string(), "SVec4[ 35, 38, 39 ]");
+
     vec.push(11).unwrap();
-    vec.pop(); // Mutation is ok again.
-    assert_eq!(vec.to_string(), "SVec4[ 25, 28, 29 ]");
+    vec.pop(); // Mutation is allowed again.
+    assert_eq!(vec.to_string(), "SVec4[ 35, 38, 39 ]");
+
+    //for x in vec {}  // Nice error message.
 }
 
 #[test]
