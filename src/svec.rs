@@ -189,7 +189,7 @@ macro_rules! def_stackvec {
             type Item = T;
             type IntoIter = std::option::IntoIter<T>;
             fn into_iter(self) -> Self::IntoIter {
-                panic!("Do not convert an 'SVec' object to an Iterator directly -- use '&SVec' or '&mut SVec' instead.");
+                panic!("Do not convert an 'SVec' object to an Iterator directly -- use '&SVec' or '&mut SVec' or .iter() or .iter_mut() instead.");
             }
         }
         impl<'a,T> IntoIterator for &'a $name<T> {
