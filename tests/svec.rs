@@ -137,3 +137,22 @@ fn as_str() {
     // assert_eq!(vec.as_str().unwrap(), "...");  // 'as_str()' doesn't exist for non-u8 types.
 }
 
+#[test]
+fn partialeq() {
+    let a = SVec4::<u8>::new();
+    let b = SVec16::<u8>::new();
+
+    assert_eq!(a.eq(&b), true);
+    assert_eq!(b.eq(&a), true);
+
+    a.push(0).unwrap();
+
+    assert_eq!(a.eq(&b), false);
+    assert_eq!(b.eq(&a), false);
+
+    b.push(0).unwrap();
+
+    assert_eq!(a.eq(&b), true);
+    assert_eq!(b.eq(&a), true);
+}
+

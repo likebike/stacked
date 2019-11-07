@@ -207,12 +207,15 @@ macro_rules! def_stackvec {
             }
         }
 
-        //impl<T> PartialEq for $name<T> where T:PartialEq {
-        //    fn eq(&self, other:&Self) -> bool {
-        //        if self.len()!=other.len() { return false }
-        //        unimplemented!();
-        //    }
-        //}
+        impl<T,U> PartialEq<U> for $name<T> where T:PartialEq, U:SVec<Item=T, Output=T> {
+            fn eq(&self, other:&U) -> bool {
+                if self.len()!=other.len() { return false }
+                for i in 0..self.len() {
+                    if self[i]!=other[i] { return false }
+                }
+                true
+            }
+        }
 
         // I can't figure out how to turn this into a blanket implementation...
         // The difficulty is maybe because the Trait and the Type are both parameterized,
