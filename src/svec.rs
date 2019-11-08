@@ -25,6 +25,7 @@ pub trait SVec : Sized + Drop + Index<usize> + IndexMut<usize> {  // https://git
 
     // ---- Mutation Interface ----
     // If you use any of this section AT ALL, it is up to you to keep the bugs out.
+    fn clear(&mut self);
     fn pop(&mut self) -> Self::Item;
     //fn set(&mut self, i:usize, t:Self::Item);
     fn insert(&mut self, i:usize, t:Self::Item);
@@ -59,6 +60,14 @@ macro_rules! def_stackvec {
             #[inline]
             fn len(&self) -> usize { self.length.get() }
 
+            fn clear(&mut self) {
+                let mut length = self.length.get();
+                while length>0 {
+                    unsafe { ptr::drop_in_place(&mut (*self.data.get())[length-1]); }
+                    length-=1; self.length.set(length);
+                }
+            }
+
             fn push(&self, t:T) -> Result<usize,KErr> {
                 let i = self.length.get();
                 if i>=self.cap() { return Err(KErr::new("overflow")); }
@@ -73,26 +82,6 @@ macro_rules! def_stackvec {
                 self.length.set(len-1);
                 t
             }
-
-            // #[inline]
-            // fn get(&self, i:usize) -> &T {
-            //     if i>=self.length.get() { panic!("out-of-bounds"); }
-            //     unsafe { &(*self.data.get())[i] }
-            // }
-            // #[inline]
-            // fn get_copy(&self, i:usize) -> T where T:Copy {
-            //     if i>=self.length.get() { panic!("out-of-bounds"); }
-            //     unsafe { (*self.data.get())[i] }
-            // }
-            // fn set(&mut self, i:usize, t:T) {
-            //     let len = self.length.get();
-            //     if i>len { panic!("out-of-bounds") }
-            //     if i==len {
-            //         self.push(t).unwrap();
-            //         return;
-            //     }
-            //     unsafe { (*self.data.get())[i] = t; }
-            // }
 
             fn insert(&mut self, i:usize, t:T) {
                 let len = self.length.get();
@@ -148,6 +137,11 @@ macro_rules! def_stackvec {
             //     box self.iter_mut()
             // }
         }
+        impl<T> $name<T> {
+            // I can't put this in the trait interface because I don't have a way of specifying $name.
+            // I can refactor when we have const_generics.
+            pub fn new_of<U>(&self) -> $name<U> { $name::<U>::new() }
+        }
         // Maybe place this into the above impl when Type Equality Bounding is implemented):
         // https://github.com/rust-lang/rust/issues/20041
         impl $name<u8> {
@@ -160,13 +154,7 @@ macro_rules! def_stackvec {
         impl<T> Drop for $name<T> {
             fn drop(&mut self) {
                 //eprintln!("svec drop start");
-
-                let mut length = self.length.get();
-                while length>0 {
-                    unsafe { ptr::drop_in_place(&mut (*self.data.get())[length-1]); }
-                    length-=1; self.length.set(length);
-                }
-
+                self.clear();
                 //eprintln!("svec drop end");
             }
         }
