@@ -1,8 +1,11 @@
+#![feature(backtrace)]
+
 use stacked::{SVec, SVec4, SVec16};
 
 use kerr::KErr;
 
 use std::mem::size_of;
+use std::backtrace::Backtrace;
 
 #[test]
 fn svec1() {
@@ -18,11 +21,12 @@ fn svec1() {
 
 
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 struct Dropper(i32);
 impl Drop for Dropper {
     fn drop(&mut self) {
         eprintln!("in Dropper.drop: {}", self.0);
+        if self.0%10==0 { eprintln!("{}",Backtrace::capture()); }
     }
 }
 impl Default for Dropper {
@@ -154,5 +158,98 @@ fn partialeq() {
 
     assert_eq!(a.eq(&b), true);
     assert_eq!(b.eq(&a), true);
+}
+
+#[test]
+fn fromiter() {
+    // Vec works as expected:
+    {
+        let v = vec![Dropper(10), Dropper(11)];
+        for x in v {
+            println!("in v loop: {}",x.0);
+        }
+        // println!("{}",v.len());  // 'v' already moved by 'for'
+        println!("done with v loop");
+    }
+
+    // Array does NOT iterate owned values:
+    {
+        let a = [Dropper(20), Dropper(21)];
+        for x in a.into_iter() {
+            println!("in a loop: {}",x.0);
+        }
+        println!("{}",a.len());  // 'a' NOT moved by 'for'
+        println!("done with a loop");
+    }
+
+    {
+        let mut s = SVec4::<Dropper>::new();
+        s.push(Dropper(30)).unwrap();
+        s.push(Dropper(31)).unwrap();
+        for x in s.iter_owned() {
+            println!("in s loop: {}",x.0);
+        }
+        // println!("{}",s.len());  // 's' already moved by 'for'
+        println!("done with s loop");
+    }
+
+    {
+        let mut s = SVec4::<Dropper>::new();
+        println!("addr of s: {:?}  dataptr: {:?}", &s as *const _, "s.dataptr()");
+        s.push(Dropper(40)).unwrap();
+        s.push(Dropper(41)).unwrap();
+        for x in s.iter_owned() {
+            println!("in s2 loop: {}",x.0);
+            break;
+        }
+        // println!("{}",s.len());  // 's' already moved by 'for'
+        println!("done with s2 loop");
+    }
+
+    {
+        println!("Testing unsound intoiter lifetime:");
+        #[inline(never)]
+        fn output_an_intoiter() /*-> IntoIter<'static,Dropper>*/ {
+            let s = SVec4::<Dropper>::new();
+            println!("addr of s: {:?}  dataptr: {:?}", &s as *const _, "s.dataptr()");
+            s.push(Dropper(50)).unwrap();
+            s.push(Dropper(51)).unwrap();
+
+            let mut t = s;
+            println!("addr of t: {:?}  dataptr: {:?}", &t as *const _, "t.dataptr()");
+
+            t = SVec4::<Dropper>::new();
+            println!("addr of t: {:?}  dataptr: {:?}", &t as *const _, "t.dataptr()");
+            t.push(Dropper(60)).unwrap();
+            t.push(Dropper(61)).unwrap();
+            println!("addr of t: {:?}  dataptr: {:?}", &t as *const _, "t.dataptr()");
+
+            let intoiter1 = t.iter_owned();
+            println!("addr of intoiter1: {:?}  dataptr: {:?}", &intoiter1 as *const _, "intoiter1.dataptr()");
+        //    intoiter1    // Yay, the compiler prevents us from returning this iterator out of the function.
+        }
+        let _intoiter2 = output_an_intoiter();
+        println!("after drop of svec -- only intoiter remains...");
+        //println!("addr of intoiter2: {:?}  dataptr: {:?}", &_intoiter2 as *const _, "_intoiter2.dataptr()");
+        //for x in _intoiter2 {
+        //    println!("in unsound intoiter loop: {}",x.0);
+        //}
+    }
+
+    //let b : SVec4<Dropper> = [Dropper(1), Dropper(2)].into_iter().collect();
+}
+
+#[test]
+fn reverse() {
+    let mut s = SVec4::<Dropper>::new();
+    s.push(Dropper(1)).unwrap();
+    s.push(Dropper(2)).unwrap();
+    println!("before: {:?}",s);
+    s.reverse();
+    println!("reversed: {:?}",s);
+    s.push(Dropper(3)).unwrap();
+    println!("before 2: {:?}",s);
+    s.reverse();
+    println!("reversed 2: {:?}",s);
 }
 

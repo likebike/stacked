@@ -7,7 +7,7 @@ mod svec;
 // mod sstring;  // Newtypes are way too expensive!  Just alias to SVec instead.
 // mod sref;     // I'll probably do this later.  Right now, it's just simpler-to-understand and more efficient to just use raw indexes.
 
-pub use self::svec::SVec;
+pub use self::svec::{SVec, IntoIter};
 
 use kerr::KErr;
 
@@ -17,24 +17,25 @@ use std::ptr;
 use std::cell::{UnsafeCell, Cell};
 use std::slice;
 use std::ops::{Index, IndexMut};
+use std::iter::FromIterator;
 
 
 // I am looking forward to const_generics : https://github.com/rust-lang/rust/issues/44580
 
-def_stackvec!(   SVec1,    SString1,    1);
-def_stackvec!(   SVec2,    SString2,    2);
-def_stackvec!(   SVec4,    SString4,    4);
-def_stackvec!(   SVec8,    SString8,    8);
-def_stackvec!(  SVec16,   SString16,   16);
-def_stackvec!(  SVec32,   SString32,   32);
-def_stackvec!(  SVec64,   SString64,   64);
-def_stackvec!( SVec128,  SString128,  128);
-def_stackvec!( SVec256,  SString256,  256);
-def_stackvec!( SVec512,  SString512,  512);
-def_stackvec!(SVec1024, SString1024, 1024);
-def_stackvec!(SVec2048, SString2048, 2048);
-def_stackvec!(SVec4096, SString4096, 4096);
-def_stackvec!(SVec8192, SString8192, 8192);
+def_stackvec!(   1,    SVec1,    SString1);
+def_stackvec!(   2,    SVec2,    SString2);
+def_stackvec!(   4,    SVec4,    SString4);
+def_stackvec!(   8,    SVec8,    SString8);
+def_stackvec!(  16,   SVec16,   SString16);
+def_stackvec!(  32,   SVec32,   SString32);
+def_stackvec!(  64,   SVec64,   SString64);
+def_stackvec!( 128,  SVec128,  SString128);
+def_stackvec!( 256,  SVec256,  SString256);
+def_stackvec!( 512,  SVec512,  SString512);
+def_stackvec!(1024, SVec1024, SString1024);
+def_stackvec!(2048, SVec2048, SString2048);
+def_stackvec!(4096, SVec4096, SString4096);
+def_stackvec!(8192, SVec8192, SString8192);
 
 
 #[cfg(test)]

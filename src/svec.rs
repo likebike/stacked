@@ -6,12 +6,12 @@ use std::ops::{Index, IndexMut};
 // This is how you can manually convert a value to a type, and call a type-parameterized function:
 // pub fn cap<T>(_:&T) -> usize where T:SVec { T::cap() }
 
-pub trait SVec : Sized + Drop + Index<usize> + IndexMut<usize> {  // https://github.com/rust-lang/rfcs/blob/master/text/0546-Self-not-sized-by-default.md
+pub trait SVec : Index<usize, Output=<Self as SVec>::Item> + IndexMut<usize> {  // Must use that crazy syntax to tell the compiler that the associated types are equal.
     type Item;
 
     // ---- Append-Only Interface ----
     // If you ONLY use this section, you can't have bugs.
-    fn new() -> Self;
+    fn new() -> Self where Self:Sized;  // https://github.com/rust-lang/rfcs/blob/master/text/0546-Self-not-sized-by-default.md
     fn cap(&self) -> usize;
     fn len(&self) -> usize;
     fn push(&self, t:Self::Item) -> Result<usize,KErr>;
@@ -30,23 +30,33 @@ pub trait SVec : Sized + Drop + Index<usize> + IndexMut<usize> {  // https://git
     //fn set(&mut self, i:usize, t:Self::Item);
     fn insert(&mut self, i:usize, t:Self::Item);
     fn remove(&mut self, i:usize) -> Self::Item;
+    fn reverse(&mut self);
     fn as_slice_mut(&mut self) -> &mut [Self::Item];
     //fn iter_mut(&mut self) -> impl Iterator<Item=&mut Self::Item>  // Currently not able to return 'impl Trait' from Trait methods.  https://github.com/rust-lang/rfcs/blob/master/text/1522-conservative-impl-trait.md#limitation-to-freeinherent-functions
     //fn iter_mut_dyn<'a>(&'a mut self) -> Box<dyn Iterator<Item=&mut Self::Item> + 'a>;
     fn iter_mut<'a>(&'a mut self) -> slice::IterMut<'a,Self::Item>;
+
+    // Due to our stack allocation and aversion to copying of data, I can't do a standard implementation of IntoIterator because it takes ownership.
+    // Here is a similar thing that takes '&mut' instead and returns owned objects.
+    fn iter_owned<'a>(&'a mut self) -> IntoIter<'a,Self::Item> where Self:Sized {
+        IntoIter::new(self)
+    }
+
+    // ---- Debugging ----
+    //fn dataptr(&self) -> *const Self::Item;
 }
 
 
 
 
 macro_rules! def_stackvec {
-    ( $name:ident, $strname:ident, $size:expr ) => {
-        pub struct $name<T> {
+    ( $size:expr, $svec:ident, $sstring:ident ) => {
+        pub struct $svec<T> {
             //data: UnsafeCell<[Option<T>; $size]>,  // I'm using Option mainly for efficient drops.  Also enables me to hardcode the initial values.  NEVERMIND, if i do this, i can't slice efficiently.
             data: ManuallyDrop<UnsafeCell<[T; $size]>>,
             length: Cell<usize>,
         }
-        impl<T> SVec for $name<T> {
+        impl<T> SVec for $svec<T> {
             type Item = T;
 
             #[inline]
@@ -108,6 +118,21 @@ macro_rules! def_stackvec {
                 }
             }
 
+            fn reverse(&mut self) {
+                let mut i=0; let mut j=self.length.get()-1;
+                let aptr = self.data.get();
+                while i<j {
+                    unsafe {
+                        // Cannot deref aptr outside the loop because of borrow checker.
+                        let i_p = &mut (*aptr)[i];
+                        let j_p = &mut (*aptr)[j];
+                        mem::swap(i_p, j_p);
+                    }
+
+                    i+=1; j-=1;
+                }
+            }
+
             #[inline]
             fn as_slice(&self) -> &[T] {
                 unsafe { &(*self.data.get())[..self.len()] }
@@ -136,22 +161,30 @@ macro_rules! def_stackvec {
             // fn iter_mut_dyn<'a>(&'a mut self) -> Box<dyn Iterator<Item=&mut T> + 'a> {
             //     box self.iter_mut()
             // }
+
+            //fn dataptr(&self) -> *const T { self.data.get() as *const T }  // For Debugging
         }
-        impl<T> $name<T> {
-            // I can't put this in the trait interface because I don't have a way of specifying $name.
+        impl<T> $svec<T> {
+            // I can't put this in the trait interface because I don't have a way of specifying $svec.
             // I can refactor when we have const_generics.
-            pub fn new_of<U>(&self) -> $name<U> { $name::<U>::new() }
+            pub fn new_of<U>(&self) -> $svec<U> { $svec::<U>::new() }
+
+            pub fn from_iter_err<I>(iter:I) -> Result<Self,KErr> where I:IntoIterator<Item=T> {
+                let out = Self::new();
+                for t in iter { out.push(t)?; }
+                Ok(out)
+            }
         }
         // Maybe place this into the above impl when Type Equality Bounding is implemented):
         // https://github.com/rust-lang/rust/issues/20041
-        impl $name<u8> {
+        impl $svec<u8> {
             #[inline]
             pub fn as_str(&self) -> Result<&str, KErr> {
                 std::str::from_utf8(self.as_slice()).map_err(|_| KErr::new("Utf8Error"))
             }
         }
 
-        impl<T> Drop for $name<T> {
+        impl<T> Drop for $svec<T> {
             fn drop(&mut self) {
                 //eprintln!("svec drop start");
                 self.clear();
@@ -159,35 +192,44 @@ macro_rules! def_stackvec {
             }
         }
 
-        impl<T> Index<usize> for $name<T> {
+        impl<T> Index<usize> for $svec<T> {
             type Output = T;
             fn index(&self, index:usize) -> &Self::Output {
                 if index>=self.length.get() { panic!("out-of-bounds"); }
                 unsafe { &(*self.data.get())[index] }
             }
         }
-        impl<T> IndexMut<usize> for $name<T> {
+        impl<T> IndexMut<usize> for $svec<T> {
             fn index_mut(&mut self, index:usize) -> &mut Self::Output {
                 if index>=self.length.get() { panic!("out-of-bounds"); }
                 unsafe { &mut (*self.data.get())[index] }
             }
         }
 
-        impl<T> IntoIterator for $name<T> {
-            type Item = T;
-            type IntoIter = std::option::IntoIter<T>;
-            fn into_iter(self) -> Self::IntoIter {
-                panic!("Do not convert an 'SVec' object to an Iterator directly -- use '&SVec' or '&mut SVec' or .iter() or .iter_mut() instead.");
-            }
-        }
-        impl<'a,T> IntoIterator for &'a $name<T> {
+        //////// We can't do this because into_iter() wants to take ownership of 'self', and that doesn't play nicely with stack allocations.
+        // impl<T> IntoIterator for $svec<T> {
+        //     type Item = T;
+        //     type IntoIter = $intoiter<T>;
+        //     fn into_iter(self) -> Self::IntoIter {
+        //         // mem::transmute::<Self, Self::IntoIter>(self)  // Can't transmute generics cuz compiler doesn't know their sizes (even though it totally could).
+        // 
+        //         // Here's my own transmute implementation:
+        //         assert_eq!(mem::size_of::<$svec<T>>(), mem::size_of::<$intoiter<T>>());
+        //         unsafe {
+        //             let iter = ptr::read(&self as *const $svec<T> as *const $intoiter<T>);
+        //             mem::forget(self);
+        //             iter
+        //         }
+        //     }
+        // }
+        impl<'a,T> IntoIterator for &'a $svec<T> {
             type Item = &'a T;
             type IntoIter = slice::Iter<'a,T>;
             fn into_iter(self) -> Self::IntoIter {
                 self.iter()
             }
         }
-        impl<'a,T> IntoIterator for &'a mut $name<T> {
+        impl<'a,T> IntoIterator for &'a mut $svec<T> {
             type Item = &'a mut T;
             type IntoIter = slice::IterMut<'a,T>;
             fn into_iter(self) -> Self::IntoIter {
@@ -195,7 +237,13 @@ macro_rules! def_stackvec {
             }
         }
 
-        impl<T,U> PartialEq<U> for $name<T> where T:PartialEq, U:SVec<Item=T, Output=T> {
+        impl<T> FromIterator<T> for $svec<T> {
+            fn from_iter<I>(iter:I) -> Self where I:IntoIterator<Item=T> {
+                Self::from_iter_err(iter).unwrap()
+            }
+        }
+
+        impl<T,U> PartialEq<U> for $svec<T> where T:PartialEq, U:SVec<Item=T, Output=T> {
             fn eq(&self, other:&U) -> bool {
                 if self.len()!=other.len() { return false }
                 for i in 0..self.len() {
@@ -209,7 +257,7 @@ macro_rules! def_stackvec {
         // The difficulty is maybe because the Trait and the Type are both parameterized,
         // and so i can't figure out how to specify those parameters along with the extra
         // Display constraint...  I'm sure it's easy, but I can't figure it out.
-        impl<T> fmt::Display for $name<T> where T:fmt::Display {
+        impl<T> fmt::Display for $svec<T> where T:fmt::Display {
             fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
                 let mut nonempty = false;
                 write!(f, "[")?;
@@ -223,10 +271,10 @@ macro_rules! def_stackvec {
                 Ok(())
             }
         }
-        impl<T> fmt::Debug for $name<T> where T:fmt::Debug {
+        impl<T> fmt::Debug for $svec<T> where T:fmt::Debug {
             fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
                 let mut nonempty = false;
-                write!(f, "{}[", stringify!($name))?;
+                write!(f, "{}[", stringify!($svec))?;
                 for t in self.as_slice().iter() {
                     if nonempty { write!(f, ",")?; }
                     nonempty = true;
@@ -239,7 +287,7 @@ macro_rules! def_stackvec {
         }
 
 
-        pub type $strname = $name<u8>;
+        pub type $sstring = $svec<u8>;
         // ---- I wanted to use this newtype, but it runs 50x slower than the above alias!!!
         //      The compiler does a *horrible* job of handling this simple case...
         //      I think it's because I was hitting a very perfect scenario where the compiler
@@ -247,18 +295,34 @@ macro_rules! def_stackvec {
         //      resulted in some extremely fast benches.  Combined with the fact that the
         //      compiler doesn't try to inline functions across crates, and the extra fn call
         //      was a killer for the tight-loop.
-        // pub struct $strname(pub $name<u8>)
-        // impl $strname {
-        //     pub fn new() -> Self { Self($name::new()) }
+        // pub struct $sstring(pub $svec<u8>)
+        // impl $sstring {
+        //     pub fn new() -> Self { Self($svec::new()) }
         // }
-        // impl SString for $strname {
+        // impl SString for $sstring {
         //     #[inline]
-        //     fn cap() -> usize { $name::<u8>::cap() }
+        //     fn cap() -> usize { $svec::<u8>::cap() }
         //     #[inline]
         //     fn len(&self) -> usize { self.0.len() }
         //     #[inline]
         //     fn push(&self, b:u8) -> Result<usize,KErr> { self.0.push(b) }
         // }
     }
+}
+
+pub struct IntoIter<'a,T>(&'a mut dyn SVec<Item=T, Output=T>);
+impl<'a,T> Iterator for IntoIter<'a,T> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.len()==0 { return None }
+        Some(self.0.pop())
+    }
+}
+impl<T> IntoIter<'_,T> {
+    pub fn new<'a>(svec:&'a mut dyn SVec<Item=T, Output=T>) -> IntoIter<'a,T> {
+        IntoIter(svec)
+    }
+
+    //pub fn dataptr(&self) -> *const T { self.0.dataptr() }
 }
 
