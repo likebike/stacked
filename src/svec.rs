@@ -169,7 +169,7 @@ macro_rules! def_stackvec {
             // I can refactor when we have const_generics.
             pub fn new_of<U>(&self) -> $svec<U> { $svec::<U>::new() }
 
-            pub fn from_iter_err<I>(iter:I) -> Result<Self,KErr> where I:IntoIterator<Item=T> {
+            pub fn try_from_iter<I>(iter:I) -> Result<Self,KErr> where I:IntoIterator<Item=T> {
                 let out = Self::new();
                 for t in iter { out.push(t)?; }
                 Ok(out)
@@ -239,7 +239,7 @@ macro_rules! def_stackvec {
 
         impl<T> FromIterator<T> for $svec<T> {
             fn from_iter<I>(iter:I) -> Self where I:IntoIterator<Item=T> {
-                Self::from_iter_err(iter).unwrap()
+                Self::try_from_iter(iter).unwrap()
             }
         }
 
