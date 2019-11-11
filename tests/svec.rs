@@ -253,3 +253,17 @@ fn reverse() {
     println!("reversed 2: {:?}",s);
 }
 
+#[test]
+fn literal() {
+    let svec : SVec16<_> = vec![1,2,3].into();
+    assert_eq!(svec.len(), 3);
+    assert_eq!(svec.to_string(), "[ 1, 2, 3 ]");
+}
+
+#[test]
+fn collect() {
+    let svec : SVec16<_> = vec![1,2,3].into_iter().collect();
+    assert_eq!(svec.len(), 3);
+    assert_eq!(svec.to_string(), "[ 1, 2, 3 ]");
+}
+

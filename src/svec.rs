@@ -169,10 +169,14 @@ macro_rules! def_stackvec {
             // I can refactor when we have const_generics.
             pub fn new_of<U>(&self) -> $svec<U> { $svec::<U>::new() }
 
+            // I'm not able to implement the TryFrom trait because of a conflict with a blanket impl.
+            //     impl<T,I> TryFrom<I> for $svec<T> where I:IntoIterator<Item=T>
+            // So that's why I'm putting this here:
             pub fn try_from_iter<I>(iter:I) -> Result<Self,KErr> where I:IntoIterator<Item=T> {
                 let out = Self::new();
                 for t in iter { out.push(t)?; }
                 Ok(out)
+                
             }
         }
         // Maybe place this into the above impl when Type Equality Bounding is implemented):
@@ -239,6 +243,12 @@ macro_rules! def_stackvec {
 
         impl<T> FromIterator<T> for $svec<T> {
             fn from_iter<I>(iter:I) -> Self where I:IntoIterator<Item=T> {
+                Self::try_from_iter(iter).unwrap()
+            }
+        }
+        // I'm surprised this isn't already handled by a blanket impl on top of FromIterator:
+        impl<T,I> From<I> for $svec<T> where I:IntoIterator<Item=T> {
+            fn from(iter:I) -> Self {
                 Self::try_from_iter(iter).unwrap()
             }
         }
