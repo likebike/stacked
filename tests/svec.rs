@@ -1,15 +1,15 @@
-#![feature(backtrace)]
+#![feature(backtrace, box_syntax)]
 
-use stacked::{SVec, SVec4, SVec16};
+use stacked::{SVec, SVec4, SVec16, SVec8192};
 
 use kerr::KErr;
 
-use std::mem::size_of;
+use std::mem::{size_of, size_of_val};
 use std::backtrace::Backtrace;
 
 #[test]
 fn svec1() {
-    let vec = SVec4::<i32>::new();
+    let mut vec = SVec4::<i32>::new();
     let ai = vec.push(0).unwrap();
     let bi = vec.push(1).unwrap();
     eprintln!("{} {}",vec[ai],vec[bi]);
@@ -36,7 +36,7 @@ impl Default for Dropper {
 #[test]
 fn svec2() {
     eprintln!("I expect to see: START 3 2 1 END");
-    let vec = SVec4::<Dropper>::new();
+    let mut vec = SVec4::<Dropper>::new();
     assert_eq!(vec.len(),0);
     vec.push(Dropper(1)).unwrap();
     vec.push(Dropper(2)).unwrap();
@@ -86,17 +86,17 @@ fn mutation() {
 
     let mut sum = 0i32;
     let iter = vec.iter();
-    vec.push(8).unwrap();  // Appends are always allowed.  The new item doesn't get included in the iterator.
     //vec.pop(); // Mutation is not allowed while iter is still being used.
     for x in iter { sum+=x; }
     assert_eq!(sum, 5);
+    vec.push(8).unwrap();
 
     let mut sum = 0i32;
     let iter = (&vec).into_iter();
-    vec.push(9).unwrap();
     //vec.pop(); // Mutation is not allowed while iter is still being used.
     for x in iter { sum+=x; }
     assert_eq!(sum, 13);
+    vec.push(9).unwrap();
 
     let mut sum = 0i32;
     for x in &vec { sum+=x; }
@@ -128,7 +128,7 @@ fn mutation() {
 
 #[test]
 fn as_str() {
-    let vec = SVec16::<u8>::new();
+    let mut vec = SVec16::<u8>::new();
     vec.push(b'H').unwrap();
     vec.push(b'e').unwrap();
     vec.push(b'l').unwrap();
@@ -136,15 +136,15 @@ fn as_str() {
     vec.push(b'o').unwrap();
     assert_eq!(vec.as_str().unwrap(), "Hello");
 
-    let vec = SVec16::<i32>::new();
+    let mut vec = SVec16::<i32>::new();
     vec.push(0).unwrap();
     // assert_eq!(vec.as_str().unwrap(), "...");  // 'as_str()' doesn't exist for non-u8 types.
 }
 
 #[test]
 fn partialeq() {
-    let a = SVec4::<u8>::new();
-    let b = SVec16::<u8>::new();
+    let mut a = SVec4::<u8>::new();
+    let mut b = SVec16::<u8>::new();
 
     assert_eq!(a.eq(&b), true);
     assert_eq!(b.eq(&a), true);
@@ -210,7 +210,7 @@ fn fromiter() {
         println!("Testing unsound intoiter lifetime:");
         #[inline(never)]
         fn output_an_intoiter() /*-> IntoIter<'static,Dropper>*/ {
-            let s = SVec4::<Dropper>::new();
+            let mut s = SVec4::<Dropper>::new();
             println!("addr of s: {:?}  dataptr: {:?}", &s as *const _, "s.dataptr()");
             s.push(Dropper(50)).unwrap();
             s.push(Dropper(51)).unwrap();
@@ -265,5 +265,17 @@ fn collect() {
     let svec : SVec16<_> = vec![1,2,3].into_iter().collect();
     assert_eq!(svec.len(), 3);
     assert_eq!(svec.to_string(), "[ 1, 2, 3 ]");
+}
+
+#[test]
+fn boxed() {
+    return;  // Not working yet.
+
+    //for i in 0..10_000_000 {
+        let mut v = box SVec8192::<[u8;1024]>::new();
+        v.push([0;1024]).unwrap();
+        v.push([1;1024]).unwrap();
+        println!("{}: boxed: {:?}  sizeof:{}","i",v.len(),size_of_val(&v));
+    //}
 }
 

@@ -3,6 +3,7 @@
 #![feature(test)]
 extern crate test;  // 'extern crate' seems to be required for this scenario: https://github.com/rust-lang/rust/issues/57288
 use test::{Bencher, black_box};
+use std::time::Instant;
 
 use stacked::{self, SVec, SVec32};
 
@@ -21,14 +22,24 @@ fn vec1(b:&mut Bencher) {
 
 #[bench]
 fn svec1(b:&mut Bencher) {
+    let mut v = SVec32::<u8>::new();
+
+    let start = Instant::now();
+    for _ in 1..10_000_000 {
+        v.clear();
+        let cap = v.cap();
+        while v.len()<cap { v.push(b'1').unwrap(); }
+    }
+    eprintln!("svec1 bench: {}",Instant::now().duration_since(start).as_secs_f64());
+
     b.iter(|| {
         let a = 333; black_box(a);
         for _ in 1..100 {
-            let v = SVec32::<u8>::new();
+            v.clear();
             let cap = v.cap();
             while v.len()<cap { v.push(b'1').unwrap(); }
 
-            black_box(v);
+            black_box(&v);
         }
         let z = 444; black_box(z);
     });

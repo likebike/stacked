@@ -24,7 +24,7 @@ fn sstring1(b:&mut Bencher) {
     b.iter(|| {
         let a = 333; black_box(a);
         for _ in 1..100 {
-            let s = SString32::new();
+            let mut s = SString32::new();
             let cap = s.cap();
             while s.len()<cap { s.push(b'1').unwrap(); }
 

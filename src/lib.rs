@@ -14,7 +14,6 @@ use kerr::KErr;
 use std::fmt;
 use std::mem::{self, ManuallyDrop};
 use std::ptr;
-use std::cell::{UnsafeCell, Cell};
 use std::slice;
 use std::ops::{Index, IndexMut};
 use std::iter::FromIterator;
@@ -58,7 +57,7 @@ mod internal_tests {
 
     impl<T> SVec4<T> where T:PartialEq {
         fn zet(&self, i:usize, t:T) {  // Intentionally unsafe design -- I'm mutating via a shared reference so I can verify that I'm really modifying the memory i expect.
-            unsafe { (*self.data.get())[i] = t; }
+            unsafe { *(&self.data[i] as *const T as *mut T) = t; }
         }
     }
     //impl<T> Drop for SVec4<T> {
@@ -70,21 +69,20 @@ mod internal_tests {
     #[test]
     fn svec3() {
         eprintln!("I expect to see: 1 -1 0 START 4 3 2 -11 END");
-        let vec = SVec4::<Dropper>::new();
+        let mut vec = SVec4::<Dropper>::new();
         assert_eq!(vec.len(),0);
 
         let i0 = vec.push(Dropper(1)).unwrap();
         assert_eq!(i0,0);
-        let ref0 = &vec[i0];
-        assert_eq!(ref0.0,1);
+        assert_eq!(vec[i0].0,1);
 
         vec.push(Dropper(2)).unwrap();
 
         vec.zet(0, Dropper(-1));
-        assert_eq!(ref0.0,-1);
+        assert_eq!(vec[i0].0,-1);
 
         vec.zet(0, Dropper(-11));
-        assert_eq!(ref0.0,-11);
+        assert_eq!(vec[i0].0,-11);
 
         vec.zet(3, Dropper(-3));  // Treats existing zero-bytes as a Dropper and drops it.
                                   // We're lucky zeroed memory happens to be a valid i32, otherwise BAD THINGS could happen!
@@ -99,11 +97,11 @@ mod internal_tests {
     use test::{Bencher, black_box};
 
     #[bench]
-    fn svec1(b:&mut Bencher) {
+    fn svec01(b:&mut Bencher) {
         b.iter(|| {
             let a = 333; black_box(a);
             for _ in 1..100 {
-                let v = SVec32::<u8>::new();
+                let mut v = SVec32::<u8>::new();
                 let cap = v.cap();  //SVec32::<u8>::cap();
                 while v.len()<cap { v.push(b'1').unwrap(); }
 

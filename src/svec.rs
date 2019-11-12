@@ -3,7 +3,7 @@ use std::slice;
 use std::ops::{Index, IndexMut};
 
 
-// This is how you can manually convert a value to a type, and call a type-parameterized function:
+// For future reference: This is how you can manually convert a value to a type, and call a type-parameterized function:
 // pub fn cap<T>(_:&T) -> usize where T:SVec { T::cap() }
 
 pub trait SVec : Index<usize, Output=<Self as SVec>::Item> + IndexMut<usize> {  // Must use that crazy syntax to tell the compiler that the associated types are equal.
@@ -14,7 +14,7 @@ pub trait SVec : Index<usize, Output=<Self as SVec>::Item> + IndexMut<usize> {  
     fn new() -> Self where Self:Sized;  // https://github.com/rust-lang/rfcs/blob/master/text/0546-Self-not-sized-by-default.md
     fn cap(&self) -> usize;
     fn len(&self) -> usize;
-    fn push(&self, t:Self::Item) -> Result<usize,KErr>;
+    fn push(&mut self, t:Self::Item) -> Result<usize,KErr>;
     //fn get(&self, i:usize) -> &Self::Item;
     //fn get_copy(&self, i:usize) -> Self::Item where Self::Item:Copy;
     //fn iter(&self) -> impl Iterator<Item=&Self::Item>;  // See comment on iter_mut() .
@@ -52,75 +52,70 @@ pub trait SVec : Index<usize, Output=<Self as SVec>::Item> + IndexMut<usize> {  
 macro_rules! def_stackvec {
     ( $size:expr, $svec:ident, $sstring:ident ) => {
         pub struct $svec<T> {
-            //data: UnsafeCell<[Option<T>; $size]>,  // I'm using Option mainly for efficient drops.  Also enables me to hardcode the initial values.  NEVERMIND, if i do this, i can't slice efficiently.
-            data: ManuallyDrop<UnsafeCell<[T; $size]>>,
-            length: Cell<usize>,
+            data: ManuallyDrop<[T;$size]>,
+            length: usize,
         }
         impl<T> SVec for $svec<T> {
             type Item = T;
 
             #[inline]
             fn new() -> Self {
-                Self{ data: ManuallyDrop::new(UnsafeCell::new(unsafe { mem::zeroed() })),
-                      length: Cell::new(0) }
+                Self{ data: ManuallyDrop::new(unsafe { mem::zeroed() }),
+                      length: 0 }
             }
 
             #[inline]
             fn cap(&self) -> usize { $size }
             #[inline]
-            fn len(&self) -> usize { self.length.get() }
+            fn len(&self) -> usize { self.length }
 
             fn clear(&mut self) {
-                let mut length = self.length.get();
-                while length>0 {
-                    unsafe { ptr::drop_in_place(&mut (*self.data.get())[length-1]); }
-                    length-=1; self.length.set(length);
+                while self.length>0 {
+                    unsafe { ptr::drop_in_place(&mut self.data[self.length-1]); }
+                    self.length-=1;
                 }
             }
 
-            fn push(&self, t:T) -> Result<usize,KErr> {
-                let i = self.length.get();
-                if i>=self.cap() { return Err(KErr::new("overflow")); }
-                unsafe { ptr::write(&mut (*self.data.get())[i], t); }
-                self.length.set(i+1);
+            fn push(&mut self, t:T) -> Result<usize,KErr> {
+                let i = self.length;
+                if i>=Self::cap_of_type() { return Err(KErr::new("overflow")); }
+                unsafe { ptr::write(&mut self.data[i], t); }
+                self.length+=1;
                 Ok(i)
             }
             fn pop(&mut self) -> T {
-                let len = self.length.get();
-                if len==0 { panic!("underflow"); }
-                let t = unsafe { ptr::read( &(*self.data.get())[len-1] ) };
-                self.length.set(len-1);
+                if self.length==0 { panic!("underflow"); }
+                let t = unsafe { ptr::read( &self.data[self.length-1] ) };
+                self.length-=1;
                 t
             }
 
             fn insert(&mut self, i:usize, t:T) {
-                let len = self.length.get();
-                if i>len { panic!("out-of-bounds"); }
-                if i>=self.cap() { panic!("overflow"); }
+                if i>self.length { panic!("out-of-bounds"); }
+                if i>=Self::cap_of_type() { panic!("overflow"); }
 
                 unsafe {
-                    let p = &mut (*self.data.get())[i] as *mut T;
-                    ptr::copy(p, p.offset(1), len-i);
+                    let p = &mut self.data[i] as *mut T;
+                    ptr::copy(p, p.offset(1), self.length-i);
                     ptr::write(p, t);
-                    self.length.set(len+1);
                 }
+                self.length+=1;
             }
             fn remove(&mut self, i:usize) -> T {
-                let len = self.length.get();
-                if i>=len { panic!("out-of-bounds"); }
+                if i>=self.length { panic!("out-of-bounds"); }
 
                 unsafe {
-                    let p = &mut (*self.data.get())[i] as *mut T;
+                    let p = &mut self.data[i] as *mut T;
                     let t = ptr::read(p);
-                    self.length.set(len-1);
-                    ptr::copy(p.offset(1), p, len-i-1);
+                    self.length-=1;
+                    ptr::copy(p.offset(1), p, self.length-i);  // Already subtraced 1 from length.
                     t
                 }
             }
 
             fn reverse(&mut self) {
-                let mut i=0; let mut j=self.length.get()-1;
-                let aptr = self.data.get();
+                let mut i=0; let mut j=self.length;
+                let aptr = &mut self.data as *mut ManuallyDrop<[T;$size]>;
                 while i<j {
                     unsafe {
                         // Cannot deref aptr outside the loop because of borrow checker.
@@ -135,11 +130,11 @@ macro_rules! def_stackvec {
 
             #[inline]
             fn as_slice(&self) -> &[T] {
-                unsafe { &(*self.data.get())[..self.len()] }
+                &self.data[..self.length]
             }
             #[inline]
             fn as_slice_mut(&mut self) -> &mut [T] {
-                unsafe { &mut (*self.data.get())[..self.len()] }
+                &mut self.data[..self.length]
             }
 
 
@@ -165,6 +160,9 @@ macro_rules! def_stackvec {
             //fn dataptr(&self) -> *const T { self.data.get() as *const T }  // For Debugging
         }
         impl<T> $svec<T> {
+            #[inline]
+            pub fn cap_of_type() -> usize { $size }
+
             // I can't put this in the trait interface because I don't have a way of specifying $svec.
             // I can refactor when we have const_generics.
             pub fn new_of<U>(&self) -> $svec<U> { $svec::<U>::new() }
@@ -173,7 +171,7 @@ macro_rules! def_stackvec {
             //     impl<T,I> TryFrom<I> for $svec<T> where I:IntoIterator<Item=T>
             // So that's why I'm putting this here:
             pub fn try_from_iter<I>(iter:I) -> Result<Self,KErr> where I:IntoIterator<Item=T> {
-                let out = Self::new();
+                let mut out = Self::new();
                 for t in iter { out.push(t)?; }
                 Ok(out)
                 
@@ -199,14 +197,14 @@ macro_rules! def_stackvec {
         impl<T> Index<usize> for $svec<T> {
             type Output = T;
             fn index(&self, index:usize) -> &Self::Output {
-                if index>=self.length.get() { panic!("out-of-bounds"); }
-                unsafe { &(*self.data.get())[index] }
+                if index>=self.length { panic!("out-of-bounds"); }
+                &self.data[index]
             }
         }
         impl<T> IndexMut<usize> for $svec<T> {
             fn index_mut(&mut self, index:usize) -> &mut Self::Output {
-                if index>=self.length.get() { panic!("out-of-bounds"); }
-                unsafe { &mut (*self.data.get())[index] }
+                if index>=self.length { panic!("out-of-bounds"); }
+                &mut self.data[index]
             }
         }
 
@@ -255,8 +253,8 @@ macro_rules! def_stackvec {
 
         impl<T,U> PartialEq<U> for $svec<T> where T:PartialEq, U:SVec<Item=T, Output=T> {
             fn eq(&self, other:&U) -> bool {
-                if self.len()!=other.len() { return false }
-                for i in 0..self.len() {
+                if self.length!=other.len() { return false }
+                for i in 0..self.length {
                     if self[i]!=other[i] { return false }
                 }
                 true
