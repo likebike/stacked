@@ -4,8 +4,9 @@ use stacked::{SVec, SVec4, SVec16, SVec8192};
 
 use kerr::KErr;
 
-use std::mem::{size_of, size_of_val};
+use std::mem::size_of;
 use std::backtrace::Backtrace;
+use std::time::Instant;
 
 #[test]
 fn svec1() {
@@ -127,18 +128,18 @@ fn mutation() {
 }
 
 #[test]
-fn as_str() {
+fn as_string() {
     let mut vec = SVec16::<u8>::new();
     vec.push(b'H').unwrap();
     vec.push(b'e').unwrap();
     vec.push(b'l').unwrap();
     vec.push(b'l').unwrap();
     vec.push(b'o').unwrap();
-    assert_eq!(vec.as_str().unwrap(), "Hello");
+    assert_eq!(vec.as_string().unwrap(), "Hello");
 
     let mut vec = SVec16::<i32>::new();
     vec.push(0).unwrap();
-    // assert_eq!(vec.as_str().unwrap(), "...");  // 'as_str()' doesn't exist for non-u8 types.
+    // assert_eq!(vec.as_string().unwrap(), "...");  // 'as_string()' doesn't exist for non-u8 types.
 }
 
 #[test]
@@ -175,6 +176,7 @@ fn fromiter() {
     // Array does NOT iterate owned values:
     {
         let a = [Dropper(20), Dropper(21)];
+        #[allow(array_into_iter)]
         for x in a.into_iter() {
             println!("in a loop: {}",x.0);
         }
@@ -269,13 +271,41 @@ fn collect() {
 
 #[test]
 fn boxed() {
-    return;  // Not working yet.
+    const SIZE : usize = 256;
 
-    //for i in 0..10_000_000 {
-        let mut v = box SVec8192::<[u8;1024]>::new();
-        v.push([0;1024]).unwrap();
-        v.push([1;1024]).unwrap();
-        println!("{}: boxed: {:?}  sizeof:{}","i",v.len(),size_of_val(&v));
-    //}
+    let start = Instant::now();
+    #[allow(unused_variables)]
+    for i in 0..10000 {
+        let mut v = Vec::<[u8;SIZE]>::with_capacity(8192);
+        for j in 0..v.capacity() {
+            v.push([j as u8;SIZE]);
+        }
+        //println!("{}: vecd: {:?}  sizeof:{}  cap:{}  addr:{:?}",i,v.len(),size_of::<SVec8192::<[u8;SIZE]>>(), v.capacity(), &(*v) as *const _);
+    }
+    println!("vec bench: {}", Instant::now().duration_since(start).as_secs_f64());
+
+    if SIZE<=256 {  // Prevent stack overflow
+        let start = Instant::now();
+        #[allow(unused_variables)]
+        for i in 0..10000 {
+            let mut v = box SVec8192::<[u8;SIZE]>::new();
+            for j in 0..v.cap() {
+                v.push([j as u8;SIZE]).unwrap();
+            }
+            //println!("{}: boxed: {:?}  sizeof:{}  addr:{:?}",i,v.len(),size_of::<SVec8192::<[u8;SIZE]>>(), &(*v) as *const _);
+        }
+        println!("box bench: {}", Instant::now().duration_since(start).as_secs_f64());
+
+        let start = Instant::now();
+        #[allow(unused_variables)]
+        for i in 0..10000 {
+            let mut v = SVec8192::<[u8;SIZE]>::new();
+            for j in 0..v.cap() {
+                v.push([j as u8;SIZE]).unwrap();
+            }
+            //println!("{}: noboxed: {:?}  sizeof:{}  addr:{:?}",i,v.len(),size_of::<SVec8192::<[u8;SIZE]>>(), &(*v) as *const _);
+        }
+        println!("nobox bench: {}", Instant::now().duration_since(start).as_secs_f64());
+    }
 }
 

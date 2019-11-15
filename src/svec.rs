@@ -1,5 +1,4 @@
 use kerr::KErr;
-use std::slice;
 use std::ops::{Index, IndexMut};
 
 
@@ -15,44 +14,30 @@ pub trait SVec : Index<usize, Output=<Self as SVec>::Item> + IndexMut<usize> {  
     fn cap(&self) -> usize;
     fn len(&self) -> usize;
     fn push(&mut self, t:Self::Item) -> Result<usize,KErr>;
-    //fn get(&self, i:usize) -> &Self::Item;
-    //fn get_copy(&self, i:usize) -> Self::Item where Self::Item:Copy;
-    //fn iter(&self) -> impl Iterator<Item=&Self::Item>;  // See comment on iter_mut() .
-    //fn iter_dyn<'a>(&'a self) -> Box<dyn Iterator<Item=&Self::Item> + 'a>;
-    fn iter<'a>(&'a self) -> slice::Iter<'a,Self::Item>;
-    fn as_slice(&self) -> &[Self::Item];
-    //fn as_str(&self) -> Result<&str, KErr> where Self::Item=u8;
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item=&'a Self::Item> + 'a>;
+    fn iter_owned<'a>(&'a mut self) -> Box<dyn Iterator<Item=Self::Item> + 'a>;
+    
 
     // ---- Mutation Interface ----
     // If you use any of this section AT ALL, it is up to you to keep the bugs out.
     fn clear(&mut self);
     fn pop(&mut self) -> Self::Item;
-    //fn set(&mut self, i:usize, t:Self::Item);
     fn insert(&mut self, i:usize, t:Self::Item);
     fn remove(&mut self, i:usize) -> Self::Item;
     fn reverse(&mut self);
-    fn as_slice_mut(&mut self) -> &mut [Self::Item];
-    //fn iter_mut(&mut self) -> impl Iterator<Item=&mut Self::Item>  // Currently not able to return 'impl Trait' from Trait methods.  https://github.com/rust-lang/rfcs/blob/master/text/1522-conservative-impl-trait.md#limitation-to-freeinherent-functions
-    //fn iter_mut_dyn<'a>(&'a mut self) -> Box<dyn Iterator<Item=&mut Self::Item> + 'a>;
-    fn iter_mut<'a>(&'a mut self) -> slice::IterMut<'a,Self::Item>;
+    fn iter_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item=&'a mut Self::Item> + 'a>;
 
-    // Due to our stack allocation and aversion to copying of data, I can't do a standard implementation of IntoIterator because it takes ownership.
-    // Here is a similar thing that takes '&mut' instead and returns owned objects.
-    fn iter_owned<'a>(&'a mut self) -> IntoIter<'a,Self::Item> where Self:Sized {
-        IntoIter::new(self)
-    }
-
-    // ---- Debugging ----
-    //fn dataptr(&self) -> *const Self::Item;
+    // ---- Internals ----
+    fn as_opt_slice(&self) -> &[Option<Self::Item>];
+    fn as_opt_slice_mut(&mut self) -> &mut[Option<Self::Item>];
 }
-
 
 
 
 macro_rules! def_stackvec {
     ( $size:expr, $svec:ident, $sstring:ident ) => {
         pub struct $svec<T> {
-            data: ManuallyDrop<[T;$size]>,
+            data: [Option<T>; $size],
             length: usize,
         }
         impl<T> SVec for $svec<T> {
@@ -60,8 +45,8 @@ macro_rules! def_stackvec {
 
             #[inline]
             fn new() -> Self {
-                Self{ data: ManuallyDrop::new(unsafe { mem::zeroed() }),
-                      length: 0 }
+                Self{ data:/*unsafe { mem::zeroed() },*/ [None; $size],  // const_in_array_repeat_expression
+                      length:0 }
             }
 
             #[inline]
@@ -71,7 +56,7 @@ macro_rules! def_stackvec {
 
             fn clear(&mut self) {
                 while self.length>0 {
-                    unsafe { ptr::drop_in_place(&mut self.data[self.length-1]); }
+                    self.data[self.length-1] = None;
                     self.length-=1;
                 }
             }
@@ -79,13 +64,13 @@ macro_rules! def_stackvec {
             fn push(&mut self, t:T) -> Result<usize,KErr> {
                 let i = self.length;
                 if i>=Self::cap_of_type() { return Err(KErr::new("overflow")); }
-                unsafe { ptr::write(&mut self.data[i], t); }
+                self.data[i] = Some(t);
                 self.length+=1;
                 Ok(i)
             }
             fn pop(&mut self) -> T {
                 if self.length==0 { panic!("underflow"); }
-                let t = unsafe { ptr::read( &self.data[self.length-1] ) };
+                let t = self.data[self.length-1].take().unwrap();
                 self.length-=1;
                 t
             }
@@ -95,27 +80,28 @@ macro_rules! def_stackvec {
                 if i>=Self::cap_of_type() { panic!("overflow"); }
 
                 unsafe {
-                    let p = &mut self.data[i] as *mut T;
+                    let p = &mut self.data[i] as *mut Option<T>;
                     ptr::copy(p, p.offset(1), self.length-i);
-                    ptr::write(p, t);
+                    ptr::write(p, Some(t));
                 }
                 self.length+=1;
             }
             fn remove(&mut self, i:usize) -> T {
                 if i>=self.length { panic!("out-of-bounds"); }
 
+                let t = self.data[i].take().unwrap();
                 unsafe {
-                    let p = &mut self.data[i] as *mut T;
-                    let t = ptr::read(p);
+                    let p = &mut self.data[i] as *mut Option<T>;
                     self.length-=1;
-                    ptr::copy(p.offset(1), p, self.length-i);  // Already subtraced 1 from length.
-                    t
+                    ptr::copy(p.offset(1), p, self.length-i);       // Already subtracted 1 from length.
+                    ptr::write(&mut self.data[self.length], None);  // Prevent double-drop.
                 }
+                t
             }
 
             fn reverse(&mut self) {
-                let mut i=0; let mut j=self.length;
-                let aptr = &mut self.data as *mut ManuallyDrop<[T;$size]>;
+                let mut i=0; let mut j=self.length-1;
+                let aptr = &mut self.data as *mut [Option<T>; $size];
                 while i<j {
                     unsafe {
                         // Cannot deref aptr outside the loop because of borrow checker.
@@ -129,35 +115,26 @@ macro_rules! def_stackvec {
             }
 
             #[inline]
-            fn as_slice(&self) -> &[T] {
+            fn as_opt_slice(&self) -> &[Option<T>] {
                 &self.data[..self.length]
             }
             #[inline]
-            fn as_slice_mut(&mut self) -> &mut [T] {
+            fn as_opt_slice_mut(&mut self) -> &mut [Option<T>] {
                 &mut self.data[..self.length]
             }
 
-
-            //pub fn iter(&self) -> impl Iterator<Item=&T> {  // Currently not able to return 'impl Trait' from trait methods.  Maybe someday...
-            #[inline]
-            fn iter<'a>(&'a self) -> slice::Iter<'a,T> {
-                self.as_slice().iter()
+            fn iter<'a>(&'a self) -> Box<dyn Iterator<Item=&'a T> + 'a> {
+                Box::new(self.as_opt_slice().iter().map(|optref| optref.as_ref().unwrap()))
             }
-            //pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut T> {  // Currently not able to return 'impl Trait' from trait methods.
-            #[inline]
-            fn iter_mut<'a>(&'a mut self) -> slice::IterMut<'a,T> {
-                self.as_slice_mut().iter_mut()
+            fn iter_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item=&'a mut T> + 'a> {
+                Box::new(self.as_opt_slice_mut().iter_mut().map(|optref| optref.as_mut().unwrap()))
             }
-            // #[inline]
-            // fn iter_dyn<'a>(&'a self) -> Box<dyn Iterator<Item=&T> + 'a> {
-            //     box self.iter()
-            // }
-            // #[inline]
-            // fn iter_mut_dyn<'a>(&'a mut self) -> Box<dyn Iterator<Item=&mut T> + 'a> {
-            //     box self.iter_mut()
-            // }
+            // Due to our stack allocation and aversion to copying of data, I can't do a standard implementation of IntoIterator because it takes ownership.
+            // Here is a similar thing that takes '&mut' instead and returns owned objects.
+            fn iter_owned<'a>(&'a mut self) -> Box<dyn Iterator<Item=T> + 'a> {
+                Box::new(IntoIter::new(self))
+            }
 
-            //fn dataptr(&self) -> *const T { self.data.get() as *const T }  // For Debugging
         }
         impl<T> $svec<T> {
             #[inline]
@@ -165,6 +142,7 @@ macro_rules! def_stackvec {
 
             // I can't put this in the trait interface because I don't have a way of specifying $svec.
             // I can refactor when we have const_generics.
+            #[inline]
             pub fn new_of<U>(&self) -> $svec<U> { $svec::<U>::new() }
 
             // I'm not able to implement the TryFrom trait because of a conflict with a blanket impl.
@@ -181,8 +159,8 @@ macro_rules! def_stackvec {
         // https://github.com/rust-lang/rust/issues/20041
         impl $svec<u8> {
             #[inline]
-            pub fn as_str(&self) -> Result<&str, KErr> {
-                std::str::from_utf8(self.as_slice()).map_err(|_| KErr::new("Utf8Error"))
+            pub fn as_string(&self) -> Result<String, KErr> {
+                String::from_utf8(  self.iter().cloned().collect::<Vec<u8>>()  ).map_err(|_| KErr::new("Utf8Error"))
             }
         }
 
@@ -198,13 +176,13 @@ macro_rules! def_stackvec {
             type Output = T;
             fn index(&self, index:usize) -> &Self::Output {
                 if index>=self.length { panic!("out-of-bounds"); }
-                &self.data[index]
+                self.data[index].as_ref().unwrap()
             }
         }
         impl<T> IndexMut<usize> for $svec<T> {
             fn index_mut(&mut self, index:usize) -> &mut Self::Output {
                 if index>=self.length { panic!("out-of-bounds"); }
-                &mut self.data[index]
+                self.data[index].as_mut().unwrap()
             }
         }
 
@@ -226,20 +204,20 @@ macro_rules! def_stackvec {
         // }
         impl<'a,T> IntoIterator for &'a $svec<T> {
             type Item = &'a T;
-            type IntoIter = slice::Iter<'a,T>;
+            type IntoIter = Box<dyn Iterator<Item=Self::Item> + 'a>;
             fn into_iter(self) -> Self::IntoIter {
                 self.iter()
             }
         }
         impl<'a,T> IntoIterator for &'a mut $svec<T> {
             type Item = &'a mut T;
-            type IntoIter = slice::IterMut<'a,T>;
+            type IntoIter = Box<dyn Iterator<Item=Self::Item> + 'a>;
             fn into_iter(self) -> Self::IntoIter {
                 self.iter_mut()
             }
         }
 
-        impl<T> FromIterator<T> for $svec<T> {
+        impl<T> iter::FromIterator<T> for $svec<T> {
             fn from_iter<I>(iter:I) -> Self where I:IntoIterator<Item=T> {
                 Self::try_from_iter(iter).unwrap()
             }
@@ -251,8 +229,8 @@ macro_rules! def_stackvec {
             }
         }
 
-        impl<T,U> PartialEq<U> for $svec<T> where T:PartialEq, U:SVec<Item=T, Output=T> {
-            fn eq(&self, other:&U) -> bool {
+        impl<T,V> PartialEq<V> for $svec<T> where T:PartialEq, V:SVec<Item=T, Output=T> {
+            fn eq(&self, other:&V) -> bool {
                 if self.length!=other.len() { return false }
                 for i in 0..self.length {
                     if self[i]!=other[i] { return false }
@@ -269,7 +247,7 @@ macro_rules! def_stackvec {
             fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
                 let mut nonempty = false;
                 write!(f, "[")?;
-                for t in self.as_slice().iter() {
+                for t in self.iter() {
                     if nonempty { write!(f, ",")?; }
                     nonempty = true;
                     write!(f, " {}", t)?;
@@ -283,7 +261,7 @@ macro_rules! def_stackvec {
             fn fmt(&self, f:&mut fmt::Formatter) -> Result<(), fmt::Error> {
                 let mut nonempty = false;
                 write!(f, "{}[", stringify!($svec))?;
-                for t in self.as_slice().iter() {
+                for t in self.iter() {
                     if nonempty { write!(f, ",")?; }
                     nonempty = true;
                     write!(f, " {:?}", t)?;
@@ -333,4 +311,40 @@ impl<T> IntoIter<'_,T> {
 
     //pub fn dataptr(&self) -> *const T { self.0.dataptr() }
 }
+
+//pub struct Iter<'a,T:'a> {
+//    svec: &'a dyn SVec<Item=T, Output=T>,
+//    next_i: usize,
+//}
+//impl<'a,T> Iterator for Iter<'a,T> {
+//    type Item = &'a T;
+//    fn next(&mut self) -> Option<Self::Item> {
+//        if self.next_i>=self.svec.len() { return None }
+//        self.next_i+=1;
+//        Some(&self.svec[self.next_i-1])
+//    }
+//}
+//impl<T> Iter<'_,T> {
+//    pub fn new<'a>(svec:&'a dyn SVec<Item=T, Output=T>) -> Iter<'a,T> {
+//        Iter{svec:svec, next_i:0}
+//    }
+//}
+
+//pub struct IterMut<'a,T:'a> {
+//    svec: &'a mut (dyn SVec<Item=T, Output=T> + 'a),
+//    next_i: usize,
+//}
+//impl<'a,T> Iterator for IterMut<'a,T> where T:'a {
+//    type Item = &'a mut T;
+//    fn next<'b>(&'b mut self) -> Option<&'a mut T> where 'a:'b {
+//        if self.next_i>=self.svec.len() { return None }
+//        self.next_i+=1;
+//        Some(&mut self.svec[self.next_i-1])
+//    }
+//}
+//impl<T> IterMut<'_,T> {
+//    pub fn new<'a>(svec:&'a mut dyn SVec<Item=T, Output=T>) -> IterMut<'a,T> {
+//        IterMut{svec:svec, next_i:0}
+//    }
+//}
 

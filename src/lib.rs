@@ -1,4 +1,4 @@
-#![feature(test, box_syntax)]
+#![feature(test, const_in_array_repeat_expressions)]
 
 extern crate test;
 
@@ -12,11 +12,10 @@ pub use self::svec::{SVec, IntoIter};
 use kerr::KErr;
 
 use std::fmt;
-use std::mem::{self, ManuallyDrop};
+use std::mem;
 use std::ptr;
-use std::slice;
 use std::ops::{Index, IndexMut};
-use std::iter::FromIterator;
+use std::iter;
 
 
 // I am looking forward to const_generics : https://github.com/rust-lang/rust/issues/44580
@@ -57,7 +56,7 @@ mod internal_tests {
 
     impl<T> SVec4<T> where T:PartialEq {
         fn zet(&self, i:usize, t:T) {  // Intentionally unsafe design -- I'm mutating via a shared reference so I can verify that I'm really modifying the memory i expect.
-            unsafe { *(&self.data[i] as *const T as *mut T) = t; }
+            unsafe { *(self.data[i].as_ref().unwrap() as *const T as *mut T) = t; }
         }
     }
     //impl<T> Drop for SVec4<T> {
@@ -84,9 +83,10 @@ mod internal_tests {
         vec.zet(0, Dropper(-11));
         assert_eq!(vec[i0].0,-11);
 
-        vec.zet(3, Dropper(-3));  // Treats existing zero-bytes as a Dropper and drops it.
-                                  // We're lucky zeroed memory happens to be a valid i32, otherwise BAD THINGS could happen!
-                                  // This item's drop() won't be called because SVec assumes it has not been initialized!
+        // Doesn't work anymore after switching to None default values:
+        //vec.zet(3, Dropper(-3));  // Treats existing zero-bytes as a Dropper and drops it.
+                                    // We're lucky zeroed memory happens to be a valid i32, otherwise BAD THINGS could happen!
+                                    // This item's drop() won't be called because SVec assumes it has not been initialized!
 
         vec.push(Dropper(3)).unwrap();
         vec.push(Dropper(4)).unwrap();
